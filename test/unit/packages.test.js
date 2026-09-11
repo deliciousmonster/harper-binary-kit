@@ -104,3 +104,38 @@ test('this host has a target label, or none, and never a guess', () => {
 	assert.equal(currentTargetName('freebsd', 'x64'), null);
 	assert.equal(currentTargetName('linux', 'ppc64'), null);
 });
+
+// The same binary reaches the kernel by a different mechanism per platform: precompiled eBPF objects on
+// Linux, packet capture on macOS, signed drivers on Windows. Two of the three ship no objects, so a
+// variant-wide directory would refuse to stage them, and shipping the Linux ones to either would be 42 MB
+// neither can load.
+test('an extra directory can name the targets that carry it', () => {
+	const config = {
+		scope: '@x/agent',
+		variants: [
+			{
+				suffix: '-probe',
+				optional: true,
+				extraDirs: [{ dir: 'share/system-probe', onlyOn: ['linux-x86_64', 'linux-arm64'] }],
+			},
+		],
+		binaries: [{ shipsAs: 'system-probe', variant: '-probe' }],
+	};
+	assert.deepEqual(one(packagesFor(config, target('linux-x86_64')), 'package').extraDirs, ['share/system-probe']);
+	assert.deepEqual(
+		one(packagesFor(config, target('macos-arm64')), 'package').extraDirs,
+		[],
+		'a target that carries no objects must not be asked to stage a directory it has none of'
+	);
+});
+
+test('a plain string extra directory is carried on every target the variant publishes on', () => {
+	const config = {
+		scope: '@x/agent',
+		variants: [{ suffix: '-probe', optional: true, extraDirs: ['share/anything'] }],
+		binaries: [{ shipsAs: 'system-probe', variant: '-probe' }],
+	};
+	for (const name of ['linux-x86_64', 'macos-arm64', 'windows-x86_64']) {
+		assert.deepEqual(one(packagesFor(config, target(name)), 'package').extraDirs, ['share/anything'], name);
+	}
+});

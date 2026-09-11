@@ -30,7 +30,10 @@ export default {
 			suffix: '-probe',
 			optional: true,
 			carries: 'It carries the probe and 42 MB of precompiled objects, which most nodes never load.',
-			extraDirs: ['share/probe'],
+			// A plain string is carried everywhere this variant publishes. Name targets when only some carry
+			// it: the same binary can reach the kernel a different way per platform, and a directory two of
+			// three have nothing for would refuse to stage them.
+			extraDirs: [{ dir: 'share/probe', onlyOn: ['linux-x86_64', 'linux-arm64'] }],
 		},
 	],
 	binaries: [

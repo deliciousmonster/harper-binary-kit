@@ -36,7 +36,21 @@ import { binaryFilename } from './targets.js';
  * @property {string} suffix Appended to the scope before the target label. Empty for the base variant.
  * @property {boolean} [optional] True for a variant installed by name rather than by dependency resolution.
  * @property {string} [carries] Why it is separate, for the error a consumer reads when it is not installed.
- * @property {readonly string[]} [extraDirs] Directories staged beside `bin/`, relative to the build tree.
+ * @property {readonly (string | ExtraDir)[]} [extraDirs] Directories staged beside `bin/`, relative to the
+ *   build tree. A plain string is carried on every target this variant publishes on.
+ */
+
+/**
+ * A directory only some targets carry.
+ *
+ * The case this exists for is a binary that reaches the kernel by a different mechanism per platform: the
+ * same system-probe loads precompiled eBPF objects on Linux, captures packets on macOS, and talks to signed
+ * drivers on Windows. Two of the three ship no objects, so a variant-wide directory would refuse to stage
+ * them - and shipping the Linux objects to either would be 42 MB neither can load.
+ *
+ * @typedef {object} ExtraDir
+ * @property {string} dir
+ * @property {readonly string[]} onlyOn Target names that carry it.
  */
 
 /**
@@ -47,11 +61,19 @@ import { binaryFilename } from './targets.js';
  * @property {Variant} variant
  * @property {Binary[]} binaries
  * @property {boolean} optionalDependency
- * @property {readonly string[]} extraDirs
+ * @property {readonly string[]} extraDirs Already resolved for this target, so every later step reads a
+ *   plain list rather than re-deciding what this one carries.
  */
 
 /** Whether a binary ships for a target at all. @param {Binary} binary @param {import('./targets.js').Target} on */
 export const shipsOn = (binary, on) => !binary.onlyOn || binary.onlyOn.includes(on.name);
+
+/** The extra directories one variant carries on one target. @param {Variant} variant @param {import('./targets.js').Target} on @returns {string[]} */
+export const extraDirsFor = (variant, on) =>
+	(variant.extraDirs ?? [])
+		.map((entry) => (typeof entry === 'string' ? { dir: entry, onlyOn: undefined } : entry))
+		.filter((entry) => !entry.onlyOn || entry.onlyOn.includes(on.name))
+		.map((entry) => entry.dir);
 
 /** The binaries one variant carries on one target. @param {readonly Binary[]} binaries @param {Variant} variant @param {import('./targets.js').Target} on */
 export const binariesFor = (binaries, variant, on) =>
@@ -81,7 +103,7 @@ export function packagesFor({ scope, variants, binaries }, on) {
 			variant,
 			binaries: carried,
 			optionalDependency: variant.optional !== true,
-			extraDirs: variant.extraDirs ?? [],
+			extraDirs: extraDirsFor(variant, on),
 		});
 	}
 	return packages;
