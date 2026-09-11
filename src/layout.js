@@ -1,10 +1,6 @@
 // @ts-check
-// Where things are, stated once.
-//
-// Four separate processes meet at these paths and none of them can see the others: the build runs on one CI
-// runner per target, the staging runs on another after downloading what they produced, the verification reads
-// what staging wrote, and the publish reads that. A path recomputed in any one of them is a convention with
-// two owners, and the workflow that reconstructs `build/<target>/bin` in shell is the one that goes stale.
+// Where things are, stated once. Four processes on separate runners meet at these paths and none can see
+// the others, so one that recomputes them is a convention with two owners.
 
 import { join } from 'node:path';
 

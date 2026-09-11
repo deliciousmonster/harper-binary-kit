@@ -1,14 +1,6 @@
 // @ts-check
-// Turning a build tree into publishable packages: the other half of resolve.js.
-//
-// What this writes is the whole of what a platform package is. A manifest npm filters the install on, the
-// binaries with their executable bit intact, anything shipped beside them, a README saying where the bytes
-// came from, and an `index.js` exporting `getBinaryPath` - which is the one thing resolve.js calls, and the
-// reason these two files are tested together rather than each against its own idea of the other.
-//
-// Nothing here builds anything. A build is the consumer's, runs on its own runner per target, and leaves
-// `build/<target>/bin`; this reads that and refuses anything absent, because a package staged around a
-// missing binary is one npm publishes and nothing can run.
+// A build tree into publishable packages: the manifest, the binaries, the README, and the index.js that
+// exports the getBinaryPath resolve.js calls. Builds nothing, and refuses a binary the build did not leave.
 
 import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -18,12 +10,8 @@ import { packagesFor } from './packages.js';
 import { binaryFilename } from './targets.js';
 
 /**
- * The module a platform package exports. Generated rather than copied from a template file, so the binaries
- * it knows about are the binaries that were staged beside it and cannot be a list someone edited separately.
- *
- * CommonJS on purpose: a platform package is required by whatever a component's loader happens to be, and a
- * `.js` under `"type": "module"` would refuse to load from a CJS caller. It has no dependencies, so nothing
- * else about it cares.
+ * The module a platform package exports, generated so the binaries it names are the ones staged beside it.
+ * CommonJS on purpose: it is required by whatever a component's loader happens to be.
  *
  * @param {Record<string, string>} files `shipsAs` to the filename on disk.
  * @param {readonly string[]} extraDirs Directories shipped beside `bin/`, each given its own accessor.

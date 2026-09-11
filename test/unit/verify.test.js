@@ -1,8 +1,5 @@
-// The gate, which reads the tarball rather than the tree.
-//
-// `npm pack` applies `files`, `.npmignore` and npm's own lists, so a package can look right in a checkout and
-// ship without the binary it exists for. That happened: a package published with no trace-agent in it, from a
-// tree where the file was plainly sitting there.
+// The gate, which reads the tarball rather than the tree: a package published with no trace-agent in it,
+// from a tree where the file was plainly sitting there.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -136,10 +133,8 @@ test('the whole release is checked, and one bad package does not hide another', 
 		assert.ok(reasons.some((r) => r.startsWith('@x/agent-macos-arm64')));
 	}));
 
-// A symbol says what a binary was built WITH. The other half of the same defect is what it was built
-// WITHOUT, which neither a file listing nor a symbol can see: the case this exists for is a Go build tag an
-// exclusion is supposed to have dropped, and a binary carrying it packages, is correctly named, is the right
-// size, and is several hundred megabytes of interpreter nobody asked for.
+// A symbol says what a binary was built WITH; nothing else says what it was built WITHOUT. A Go build tag an
+// exclusion should have dropped packages, is correctly named, and is an interpreter nobody asked for.
 const CHECKED = {
 	scope: '@x/agent',
 	variants: [{ suffix: '' }],
@@ -177,9 +172,8 @@ test('NEGATIVE: a consumer check refuses with the reason it gave', () =>
 		assert.deepEqual(reasons, ['@x/agent-linux-x86_64: agent was compiled with the "python" build tag']);
 	}));
 
-// Reading the record is how the exclusion is asserted off the artifact rather than trusted from the flag the
-// build was asked to use, so an artifact with no record is the one case where refusing and passing are both
-// defensible. Passing makes every unreadable artifact publish.
+// The exclusion is read off the artifact rather than trusted from the flag, so an unreadable record is the
+// one case where refusing and passing are both defensible. Passing publishes every unreadable artifact.
 test('NEGATIVE: a binary with no record to read is refused, not passed', () =>
 	withTempDir('kit-check-blank-', async (root) => {
 		const pkg = checkedPkg();

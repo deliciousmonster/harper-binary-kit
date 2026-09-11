@@ -1,16 +1,8 @@
-# The release, as a workflow a consumer calls rather than copies.
+# The release as a workflow a consumer calls rather than copies. Every step reads binary-kit.config.js; the
+# build matrix is all a caller passes, since only the caller knows how to build.
 #
-# What used to be here in shell: a loop reconstructing `build/<target>/bin` from artifact names, a glob over
-# `npm/*/` to decide what to publish, a glob over `agent-*` to name the release assets, and 25 lines of
-# `strings | grep | sort -V` for the symbol floor. Each rediscovered the package set from the filesystem, and
-# each had to agree with a declaration nothing checked it against. A target that silently failed to build was
-# a package that was silently not published.
-#
-# Now every step reads binary-kit.config.js. The build matrix is the one thing a caller still passes, because
-# only the caller knows how to build.
-#
-# It lives under .github/workflows/ because GitHub resolves a called workflow nowhere else. A copy anywhere
-# tidier is a reference that fails at trigger time with "workflow was not found".
+# Under .github/workflows/ because GitHub resolves a called workflow nowhere else, and a copy anywhere tidier
+# fails at trigger time with "workflow was not found".
 
 on:
   workflow_call:
@@ -79,9 +71,8 @@ jobs:
 
       - run: npx harper-binary-kit stage
 
-      # Every target, because `floor` is a no-op on one whose config declares none and a silent skip is the
-      # thing this package refuses: a build on a newer runner produces a binary that will not load at all on
-      # the image it ships to, and every test on the runner that built it passes.
+      # Every target: `floor` is a no-op where a config declares none, and a build on a newer runner produces
+      # a binary that will not load on the image it ships to while every test on that runner passes.
       - name: Symbol floors
         run: |
           set -euo pipefail
@@ -95,9 +86,8 @@ jobs:
       # here, and none is needed.
       - run: npx harper-binary-kit publish
 
-      # `dist-tag add` is the one step OIDC has not covered in practice: a job that had just published ten
-      # packages was answered E401 for every tag write. A token is used when one is provided, and the step
-      # fails with the exact commands when neither works, rather than leaving `latest` silently stale.
+      # `dist-tag add` is the one step OIDC has not covered: a job that had just published ten packages was
+      # answered E401 for every tag write, so a token is used where one is given and a failure names the fix.
       - name: Point latest at this release
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

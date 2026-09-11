@@ -1,6 +1,5 @@
-// Scratch space for tests that stage real packages and read them back.
-//
-// Kept small on purpose: a helper that grows becomes a second thing to understand before reading a test.
+// Scratch space for tests that stage real packages and read them back. Small on purpose: a helper that grows
+// is a second thing to understand before reading a test.
 
 import fs from 'node:fs';
 import os from 'node:os';
@@ -17,10 +16,8 @@ export async function withTempDir(prefix, run) {
 }
 
 /**
- * The one element a fixture is supposed to have produced.
- *
- * Destructuring an array gives `T | undefined` under a strict config, and a test that silently ran against
- * `undefined` because its own fixture produced nothing is a test that proves nothing. This says so instead.
+ * The one element a fixture should have produced. Destructuring gives `T | undefined`, and a test that ran
+ * against `undefined` because its fixture produced nothing proves nothing.
  *
  * @template T @param {readonly T[]} list @param {string} what @param {number} [index]
  * @returns {T}

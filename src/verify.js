@@ -1,13 +1,6 @@
 // @ts-check
-// What the tarball carries, which is not what the working tree carries.
-//
-// `npm pack` applies `files`, `.npmignore`, and npm's own always-and-never lists, so a package can look
-// correct in a checkout and ship without the binary it exists for. That has happened: a package published
-// with no trace-agent in it, from a tree where the file was plainly there.
-//
-// So this asks npm what it would pack and reads the answer, rather than reading the directory. `--dry-run`
-// publishes nothing. `--ignore-scripts` because pack still runs `prepare` without it, and inspecting a
-// manifest is not consent to run whatever that package's lifecycle does.
+// What the tarball carries, which is not what the tree carries: `files` and `.npmignore` apply at pack time,
+// and a package has shipped without the binary it exists for from a tree where the file was plainly there.
 
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -96,9 +89,8 @@ export function verifyPackage({ root, pkg, version, run }) {
 					`without the capability that symbol stands for`
 			);
 		}
-		// The consumer's own question about the same bytes. A throw is a refusal too: a check that cannot
-		// read what it needs has not established the binary is fine, and passing on the exception is how a
-		// gate comes to approve every artifact whose record it failed to parse.
+		// The consumer's own question about the same bytes. A throw is a refusal too: passing on the exception
+		// is how a gate approves every artifact whose record it failed to parse.
 		if (binary.check) {
 			let refusal;
 			try {

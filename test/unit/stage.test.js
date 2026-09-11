@@ -1,8 +1,5 @@
-// Staging, and the two ways it used to succeed at nothing.
-//
-// A staging that writes no package and reports success, and a package staged around a binary that is not
-// there. Both shipped: `--only <name>` filtered against the current host's platform and matched nothing on a
-// machine of a different one, printing "created successfully" having created none.
+// Staging, and the two ways it used to succeed at nothing: no package written, and a package staged around a
+// binary that is not there. `--only` filtered against the host's own platform and printed success.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

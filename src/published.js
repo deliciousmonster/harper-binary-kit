@@ -1,16 +1,6 @@
 // @ts-check
-// Whether the registry took what the publish said it published.
-//
-// `npm publish` exiting 0 is not the package being there. Measured on 2026-09-11: npm printed
-// `Publishing to https://registry.npmjs.org/ with tag next`, exited 0, and for the next twenty-five minutes
-// the packument served neither the version nor the tag. Both `npm view --prefer-online` and a direct fetch of
-// the packument agreed it was absent; the version endpoint had it the whole time, and a republish was refused
-// with "You cannot publish over the previously published versions".
-//
-// So a read-back asks for the exact version, at `/<name>/<version>`, and never for the package. The packument
-// is a cached aggregate and lags its own writes; the version endpoint is the thing that was written. A check
-// built on the packument reports a partial release that did not happen, which is how half an hour goes into
-// republishing something that was already there.
+// Whether the registry took what the publish said. Asked at `/<name>/<version>`, never the packument: that
+// aggregate lagged its own writes by 25 minutes on 2026-09-11 and reported a partial release that never was.
 
 const REGISTRY = 'https://registry.npmjs.org';
 
@@ -19,11 +9,8 @@ export const versionUrl = (name, version, registry = REGISTRY) =>
 	`${registry}/${name.replace('/', '%2F')}/${encodeURIComponent(version)}`;
 
 /**
- * Whether the registry serves this exact version.
- *
- * A 404 is the honest negative. Anything else - a 5xx, a timeout, a body that is not the version asked for -
- * is "could not tell", which a caller must not report as a missing package: telling somebody to republish
- * something already published is the one outcome worse than saying nothing.
+ * Whether the registry serves this exact version. A 404 is the honest negative; anything else is "could not
+ * tell", because telling somebody to republish what is already there is worse than saying nothing.
  *
  * @param {string} name @param {string} version
  * @param {{ fetch?: typeof globalThis.fetch, registry?: string }} [options]
@@ -59,10 +46,8 @@ export async function isPublished(name, version, { fetch: get = globalThis.fetch
 }
 
 /**
- * Read every package of a release back, and name the ones that are not there.
- *
- * Run after publishing, and after a wait: the registry is consistent at the version endpoint immediately in
- * every case measured, but a release is worth one retry rather than a false alarm.
+ * Read every package of a release back and name the ones absent. Run after a wait: the version endpoint was
+ * immediately consistent in every case measured, but a release is worth one retry over a false alarm.
  *
  * @param {object} options
  * @param {readonly string[]} options.names @param {string} options.version

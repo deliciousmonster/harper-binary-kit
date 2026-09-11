@@ -1,11 +1,7 @@
 #!/usr/bin/env node
 // @ts-check
-// One command per release step, so a workflow calls these rather than reimplementing them in shell.
-//
-// Every step reads the same config module and the same target list, which is the whole point: the workflow's
-// matrix, the staging, the gate and the publish loop all derive the package set from one declaration instead
-// of each rediscovering it by globbing a directory. A target that silently failed to build is then a package
-// that is silently not published, and nothing notices.
+// One command per release step, each reading the same config and target list. A step that rediscovers the
+// package set by globbing turns a target that failed to build into a package nobody notices is missing.
 
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -53,9 +49,8 @@ const COMMANDS = {
 		const { config, version, targetList } = await load(root);
 		const onlyAt = argv.indexOf('--only');
 		const only = onlyAt === -1 ? undefined : argv[onlyAt + 1];
-		// Deliberately the whole target list even for --only: a package is staged from ITS target's build
-		// tree, and filtering the targets first is how `--only probe-linux-x86_64` on a macOS machine staged
-		// nothing and reported success.
+		// The whole target list even for --only: a package stages from ITS target's tree, and filtering first
+		// is how `--only probe-linux-x86_64` on a macOS machine staged nothing and reported success.
 		const staged = stageAll({ root, config, version, targets: targetList, ...(only ? { only } : {}) });
 		for (const name of staged) say(`staged ${name}@${version}`);
 	},

@@ -1,17 +1,6 @@
 // @ts-check
-// How the binaries are split across npm packages.
-//
-// One package per target at least, and often two. The base package is an optionalDependency of the component,
-// so npm installs it on every host whose `os` and `cpu` match and skips it silently everywhere else, which is
-// exactly the behaviour wanted: a customer gets their platform's binaries and pays for no others.
-//
-// A second variant exists for the binaries most nodes never run. Making those an optionalDependency too would
-// charge every install for them, and the ones this was built for are large: privileged binaries with their own
-// precompiled objects, inert until a host is configured for them. So an add-on variant is NOT an
-// optionalDependency, is installed by name, and is asked for at resolve time like any other.
-//
-// Nothing is dropped and nothing is paid for twice. A target that has no binaries for a variant publishes no
-// package for it, so a description never claims a binary its package does not carry.
+// How the binaries split across npm packages. The base variant is an optionalDependency so npm installs one
+// host's and skips the rest; an add-on variant is not, so nobody pays for binaries they never run.
 
 import { binaryFilename } from './targets.js';
 
@@ -41,12 +30,8 @@ import { binaryFilename } from './targets.js';
  */
 
 /**
- * A directory only some targets carry.
- *
- * The case this exists for is a binary that reaches the kernel by a different mechanism per platform: the
- * same system-probe loads precompiled eBPF objects on Linux, captures packets on macOS, and talks to signed
- * drivers on Windows. Two of the three ship no objects, so a variant-wide directory would refuse to stage
- * them - and shipping the Linux objects to either would be 42 MB neither can load.
+ * A directory only some targets carry: one binary can reach the kernel a different way per platform, so two
+ * of three ship no objects and a variant-wide directory would refuse to stage them.
  *
  * @typedef {object} ExtraDir
  * @property {string} dir

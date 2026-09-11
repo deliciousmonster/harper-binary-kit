@@ -1,9 +1,5 @@
-// The package set a release publishes, derived from one declaration.
-//
-// Every step used to rediscover it: the workflow globbed `npm/*/` to publish, globbed `agent-*` to name the
-// release assets, and reconstructed `build/<target>/bin` in shell. Three places that must agree with the
-// declaration and nothing making them, which is how a target that silently failed to build became a package
-// that was silently not published.
+// The package set a release publishes, from one declaration. Three shell globs used to rediscover it, each
+// having to agree with that declaration and nothing making them.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -85,9 +81,8 @@ test('Windows binaries carry the suffix, in the package and in the expected file
 	assert.deepEqual(expectedFiles(base).sort(), ['bin/agent.exe', 'bin/trace-agent.exe', 'index.js', 'package.json']);
 });
 
-// A label nothing recognises would publish a package with an `os` field npm never matches: it installs on no
-// host and reports nothing. macos-x86_64 is NOT that case - it is a real pair this consumer happens not to
-// build for, and which target list a consumer declares is the consumer's to say.
+// An unrecognised label publishes an `os` npm never matches, installing nowhere and reporting nothing.
+// macos-x86_64 is a real pair this consumer happens not to build, which is the consumer's to declare.
 test('NEGATIVE: a label naming no real host is refused, and the refusal lists the real ones', () => {
 	assert.throws(() => target('solaris-arm64'), /unknown target/);
 	assert.throws(() => target('linux-ppc64'), /unknown target/);
@@ -105,10 +100,8 @@ test('this host has a target label, or none, and never a guess', () => {
 	assert.equal(currentTargetName('linux', 'ppc64'), null);
 });
 
-// The same binary reaches the kernel by a different mechanism per platform: precompiled eBPF objects on
-// Linux, packet capture on macOS, signed drivers on Windows. Two of the three ship no objects, so a
-// variant-wide directory would refuse to stage them, and shipping the Linux ones to either would be 42 MB
-// neither can load.
+// One binary can reach the kernel a different way per platform, so two of three ship no objects: a
+// variant-wide directory would refuse to stage them, and the Linux ones are 42 MB neither can load.
 test('an extra directory can name the targets that carry it', () => {
 	const config = {
 		scope: '@x/agent',

@@ -1,14 +1,6 @@
 // @ts-check
-// Every host a package can publish for, and the three names each one goes by.
-//
-// A platform package carries one host's binaries and declares `os` and `cpu` so npm installs it on that host
-// and skips it everywhere else. Three vocabularies meet here: node's `process.platform`/`process.arch`, npm's
-// `os`/`cpu` fields, and whatever label the packages are published under. They disagree on every axis -
-// darwin is macos is darwin, x64 is x86_64 is x64 - and a package published under one label while npm filters
-// on another installs nowhere and says nothing about it.
-//
-// A build toolchain's own names (GOOS, a target triple, an SDK) are not here. Those belong to the thing doing
-// the building, which is the consumer's, and a target carries whatever extra fields it declares.
+// The three vocabularies a host goes by: node's platform/arch, npm's os/cpu, and the published label. They
+// disagree on every axis, and a package labelled one way while npm filters another installs nowhere.
 
 /**
  * @typedef {object} Target
@@ -59,10 +51,8 @@ export function target(name) {
 export const targets = (names) => names.map(target);
 
 /**
- * The label for the host this is running on, or null where there is none.
- *
- * Null rather than a throw: a dev machine the packages are not published for can still run the tests and the
- * staging of another target, and only resolving a binary for THIS host needs an answer.
+ * The label for the host this runs on, or null. Not a throw: a machine the packages are not published for
+ * still stages and tests other targets, and only resolving a binary for THIS host needs an answer.
  *
  * @param {NodeJS.Platform} [platform] @param {string} [arch]
  * @returns {string | null}

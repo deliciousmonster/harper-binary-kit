@@ -1,9 +1,5 @@
-// The two halves of `getBinaryPath`, tested against each other.
-//
-// stage.js writes the module and resolve.js calls it. Tested separately they agree with themselves: a
-// resolver driven by a hand-written fake proves nothing about the module the staging actually writes, and a
-// staging test that reads its own output proves nothing about what a consumer does with it. So every case
-// here stages a real package into a temp directory and resolves a binary back out of it.
+// The two halves of `getBinaryPath` against each other: every case stages a real package and resolves a
+// binary back out of it, because separately the writer and the caller agree only with themselves.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -44,10 +40,8 @@ function fakeBuild(/** @type {string} */ root, /** @type {string[]} */ extraDirs
 }
 
 /**
- * A resolver whose `load` returns the staged package, which is what npm would have installed.
- *
- * `packageRoot` defaults to a directory with no build tree, because the resolver falls back to one and a
- * fallback that succeeds hides every failure the packages themselves would have reported.
+ * A resolver whose `load` returns the staged package. `packageRoot` has no build tree, because a fallback
+ * that succeeds hides every failure the packages themselves would report.
  */
 function resolverOver(
 	/** @type {string} */ root,

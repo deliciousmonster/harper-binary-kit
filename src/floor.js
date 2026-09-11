@@ -1,13 +1,6 @@
 // @ts-check
-// Whether a binary will load on the image it is shipped to.
-//
-// A dynamically linked binary records the highest symbol version it needs from each library it links, and the
-// loader refuses it outright on an image that provides less. The failure is at exec time, on the customer's
-// node, and reads as the binary being missing rather than as the toolchain being newer than the target.
-//
-// Checked here rather than at runtime because it is a property of the artifact: the build runner's glibc is
-// what sets it, and nothing downstream can change it. A build on ubuntu-24.04 shipped to an image with glibc
-// 2.36 produces exactly this, and every test passes on the runner that built it.
+// Whether a binary will load on the image it ships to. The loader refuses one needing more than the image
+// provides, at exec time on a customer's node, while every test on the runner that built it passes.
 
 import { readFileSync } from 'node:fs';
 
@@ -39,10 +32,8 @@ export function compareVersions(a, b) {
 }
 
 /**
- * What one binary needs against what the image provides.
- *
- * A binary that references nothing from a family is not a pass to report as one: it is statically linked, or
- * this platform has no such library, and either way the floor does not apply.
+ * What one binary needs against what the image provides. Referencing nothing from a family is neither pass
+ * nor failure: it is statically linked, or the platform has no such library.
  *
  * @param {object} options
  * @param {string} options.file @param {Record<string, string>} options.floor Library prefix to the highest

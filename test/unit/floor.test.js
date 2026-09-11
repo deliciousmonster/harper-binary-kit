@@ -1,8 +1,5 @@
-// The symbol versions a binary needs against what the image it ships to provides.
-//
-// The failure this catches happens at exec time on a customer's node and reads as the binary being missing,
-// so nothing about the build says anything is wrong: the runner that compiled it has the newer glibc, and
-// every test there passes.
+// The symbol versions a binary needs against what its image provides. The failure is at exec time on a
+// customer's node and reads as the binary being missing, while every test on the build runner passes.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

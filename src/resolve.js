@@ -1,18 +1,6 @@
-// Where the binary actually is.
-//
-// A package that ships native binaries splits them across one platform package per host, installed as
-// optionalDependencies, because putting every platform in one package makes every install pay for five. So
-// nothing can hardcode a path: the resolver asks each platform package this host installed for a binary by
-// filename, and falls back to a dev checkout's own build output.
-//
-// Asked by filename and checked by filename. A platform package published before a second binary existed
-// answers every request with the first one, and that path exists, so trusting the answer starts two copies of
-// the wrong process. The basename check is what turns that into an error naming the version to upgrade.
-//
-// `getBinaryPath` is a contract with stage.js, which generates the module that exports it. The two halves are
-// tested together in test/unit/contract.test.js rather than separately, because separately they agree with
-// themselves: a resolver mocked against a hand-written package proves nothing about the package the staging
-// actually writes.
+// @ts-check
+// Where the binary is: each installed platform package asked by filename, and the answer checked by filename,
+// since one published before a second binary existed answers every request with the first.
 
 import { existsSync } from 'node:fs';
 import { basename, join } from 'node:path';
@@ -56,11 +44,8 @@ async function ask(packageName, shipsAs, file, load) {
 }
 
 /**
- * Why nothing resolved, distinguishing the three states a package can be in.
- *
- * These want different things from the reader. A missing optional package is a choice they made and the fix
- * is to install it. An installed package that answered with the wrong file is a version that predates the
- * binary and the fix is an upgrade. An absent base package is a broken install.
+ * Why nothing resolved, in the three states that want different things from the reader: an opt-in package
+ * to install, an installed one too old to upgrade, or a base package whose absence is a broken install.
  *
  * @param {Array<Record<string, any>>} asked @param {string} file @param {string} local @param {string} buildCommand
  */
@@ -123,11 +108,8 @@ export function createBinaryResolver({
 		platformName: () => here().name,
 
 		/**
-		 * Whatever one variant's package states about its own layout, or null when it is not installed.
-		 *
-		 * Asked rather than computed: a path built here goes stale the moment that package's layout changes,
-		 * and the package is the only thing that knows where it put its files. Null is an ordinary answer for
-		 * an optional variant most hosts do not install.
+		 * Whatever one variant's package says about its own layout, or null when it is not installed. Asked rather
+		 * than computed, because a path built here goes stale the moment that package's layout changes.
 		 *
 		 * @param {PackageVariant} variant @param {string} accessor Name of the function the package exports.
 		 * @returns {Promise<string | null>}

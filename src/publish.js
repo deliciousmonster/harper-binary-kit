@@ -1,22 +1,7 @@
 // @ts-check
-// Getting the packages onto the registry, and saying plainly what did not get there.
-//
-// Three things go wrong here and each one used to be silent.
-//
-// A publish loop that stops at the first failure leaves the rest unattempted and unreported: on 2026-09-11 a
-// release published four packages, hit a 404 on the fifth, and stopped, so five names sat a version behind
-// and nothing said whether they would have worked. npm answers a publish to a name with no trusted publisher
-// with 404 rather than 403, so "not configured" and "not there" read identically and trying is the only way
-// to know. So every package is attempted and the failures are collected.
-//
-// A prerelease published without `--tag` is refused by npm 11, and published WITH the wrong tag takes
-// `latest` on a package's first publish whatever the tag says. So the tag is derived from the version and
-// never guessed.
-//
-// And `latest` is only ever assigned on a first publish, so on a package published only under a prerelease
-// tag it freezes at whatever version created the name. Measured on 2026-09-11: ten packages served next.10
-// under `next` and next.6 under `latest`, four releases behind, and `latest` is what npmjs.com shows and what
-// a bare `npm install` gets.
+// Getting the packages onto the registry and saying what did not get there. Every package is attempted
+// because a 404 means "no trusted publisher" as often as "not there"; the tag is derived, and `latest`, only
+// ever assigned on a first publish, is moved forward by hand.
 
 import { execFileSync } from 'node:child_process';
 
@@ -25,10 +10,8 @@ import { packageDir } from './layout.js';
 const NEEDS_SHELL = process.platform === 'win32';
 
 /**
- * The dist-tag a version publishes under: its prerelease identifier, or `latest` for a stable one.
- *
- * A tag cannot start with a digit, because npm would read it as a version. `1.2.3-0` has an identifier of
- * `0`, so it is named rather than guessed at, and the refusal names the fix.
+ * The dist-tag a version publishes under: its prerelease identifier, or `latest`. One cannot start with a
+ * digit, since npm would read it as a version, so `1.2.3-0` is refused with the fix named.
  *
  * @param {string} version @returns {string}
  */
@@ -80,15 +63,8 @@ export function publishAll({ root, packages, version, tag = distTag(version), ru
 }
 
 /**
- * Point `latest` at this release, forward only.
- *
- * Forward only because a re-run of an older tag must not walk `latest` backwards, and because a stable release
- * published after a prerelease is the one case where leaving it alone is right.
- *
- * Whether the job's credentials cover this at all is the open question: OIDC is documented for `npm publish`,
- * and on 2026-09-11 a trusted-publisher job that had just published ten packages was answered E401 for every
- * `dist-tag add`. So a failure here is reported with the exact commands rather than swallowed, and the caller
- * decides whether a stale `latest` fails the release.
+ * Point `latest` at this release, forward only, so a re-run of an older tag cannot walk it backwards. OIDC
+ * answered E401 for every `dist-tag add` on 2026-09-11, so a failure reports the exact commands.
  *
  * @param {object} options
  * @param {readonly string[]} options.names @param {string} options.version
