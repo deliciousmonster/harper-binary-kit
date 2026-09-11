@@ -57,7 +57,8 @@ step that can be a no-op says so loudly instead.
 ## Commands
 
 `npm test` is `node --test`, no build. `npm run typecheck` is `tsc --noEmit`, and it covers `test/` too.
-`test.yml` runs `format:check`, `lint`, `typecheck` and `test` on Linux, macOS and Windows against Node 22
+`release.yml` is the reusable workflow consumers call; it sits under `.github/workflows/` because GitHub
+resolves a called workflow nowhere else. `test.yml` runs `format:check`, `lint`, `typecheck` and `test` on Linux, macOS and Windows against Node 22
 and 24, and refuses a run whose test glob matched nothing.
 
 ## Voice

@@ -8,6 +8,9 @@
 #
 # Now every step reads binary-kit.config.js. The build matrix is the one thing a caller still passes, because
 # only the caller knows how to build.
+#
+# It lives under .github/workflows/ because GitHub resolves a called workflow nowhere else. A copy anywhere
+# tidier is a reference that fails at trigger time with "workflow was not found".
 
 on:
   workflow_call:
@@ -76,12 +79,15 @@ jobs:
 
       - run: npx harper-binary-kit stage
 
+      # Every target, because `floor` is a no-op on one whose config declares none and a silent skip is the
+      # thing this package refuses: a build on a newer runner produces a binary that will not load at all on
+      # the image it ships to, and every test on the runner that built it passes.
       - name: Symbol floors
         run: |
           set -euo pipefail
-          for target in $(npx harper-binary-kit names >/dev/null 2>&1; echo '${{ inputs.targets }}' | node -e 'JSON.parse(require("node:fs").readFileSync(0,"utf8")).forEach(t=>console.log(t))'); do
-            npx harper-binary-kit floor "$target"
-          done
+          echo '${{ inputs.targets }}' \
+            | node -e 'JSON.parse(require("node:fs").readFileSync(0,"utf8")).forEach(t=>console.log(t))' \
+            | while read -r target; do npx harper-binary-kit floor "$target"; done
 
       - run: npx harper-binary-kit verify
 

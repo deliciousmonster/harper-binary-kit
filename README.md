@@ -93,7 +93,7 @@ harper-binary-kit deps       # what optionalDependencies should say, for `npm ve
 harper-binary-kit names      # every package name, for a workflow that needs the list
 ```
 
-`workflows/release.yml` is a reusable workflow that calls these in order. Its matrix comes from `targets`, so
+`.github/workflows/release.yml` is a reusable workflow that calls these in order. Its matrix comes from `targets`, so
 the list a package publishes and the list CI builds cannot disagree.
 
 ## What each step is defending against
