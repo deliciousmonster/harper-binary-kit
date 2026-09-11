@@ -23,6 +23,12 @@ import { binaryFilename } from './targets.js';
  * @property {readonly string[]} [onlyOn] Target names that carry it; absent means every target.
  * @property {string} [symbol] A string that must be present in the shipped file. The publish gate reads the
  *   packed tarball for it, which is how a binary built without the thing it exists for is caught.
+ * @property {(contents: Buffer, binary: Binary) => string | undefined} [check] One more question about the
+ *   packed bytes, answered with a reason to refuse or nothing. A symbol says what a binary was built WITH
+ *   and cannot say what it was built WITHOUT, which is the other half of the same defect: the case this
+ *   exists for is a Go build tag an exclusion is supposed to have dropped, read back off the artifact
+ *   rather than trusted from the flag the build was asked to use. Runs after the symbol test and only when
+ *   the file could be read.
  */
 
 /**

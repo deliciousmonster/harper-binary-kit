@@ -135,3 +135,84 @@ test('the whole release is checked, and one bad package does not hide another', 
 		assert.ok(reasons.some((r) => r.startsWith('@x/agent-linux-x86_64')));
 		assert.ok(reasons.some((r) => r.startsWith('@x/agent-macos-arm64')));
 	}));
+
+// A symbol says what a binary was built WITH. The other half of the same defect is what it was built
+// WITHOUT, which neither a file listing nor a symbol can see: the case this exists for is a Go build tag an
+// exclusion is supposed to have dropped, and a binary carrying it packages, is correctly named, is the right
+// size, and is several hundred megabytes of interpreter nobody asked for.
+const CHECKED = {
+	scope: '@x/agent',
+	variants: [{ suffix: '' }],
+	binaries: [{ shipsAs: 'agent', symbol: 'CONNECTIONS_CHECK', check: refuseOnTag }],
+};
+
+/** A consumer's check: refuses the bytes when the record says a forbidden tag was linked in. */
+function refuseOnTag(/** @type {Buffer} */ contents) {
+	const record = /build\t-tags=([^\n]*)/.exec(contents.toString('latin1'));
+	if (!record) return 'carries no build-tag record, so the exclusion cannot be read off the packed binary';
+	if ((record[1] ?? '').split(',').includes('python')) return 'was compiled with the "python" build tag';
+	return undefined;
+}
+
+const checkedPkg = () => one(packagesFor(CHECKED, LINUX), 'package');
+const CHECKED_FILES = ['bin/agent', 'index.js', 'package.json', 'README.md'];
+
+test('a consumer check that answers nothing leaves the package publishable', () =>
+	withTempDir('kit-check-ok-', async (root) => {
+		const pkg = checkedPkg();
+		mkdirSync(join(packageDir(root, pkg.dirName), 'bin'), { recursive: true });
+		writeFileSync(join(packageDir(root, pkg.dirName), 'bin', 'agent'), 'CONNECTIONS_CHECK\nbuild\t-tags=zlib,zstd\n');
+		assert.deepEqual(verifyPackage({ root, pkg, version: '1.0.0', run: packs(CHECKED_FILES, { name: pkg.name }) }), []);
+	}));
+
+test('NEGATIVE: a consumer check refuses with the reason it gave', () =>
+	withTempDir('kit-check-bad-', async (root) => {
+		const pkg = checkedPkg();
+		mkdirSync(join(packageDir(root, pkg.dirName), 'bin'), { recursive: true });
+		writeFileSync(
+			join(packageDir(root, pkg.dirName), 'bin', 'agent'),
+			'CONNECTIONS_CHECK\nbuild\t-tags=zlib,python,zstd\n'
+		);
+		const reasons = verifyPackage({ root, pkg, version: '1.0.0', run: packs(CHECKED_FILES, { name: pkg.name }) });
+		assert.deepEqual(reasons, ['@x/agent-linux-x86_64: agent was compiled with the "python" build tag']);
+	}));
+
+// Reading the record is how the exclusion is asserted off the artifact rather than trusted from the flag the
+// build was asked to use, so an artifact with no record is the one case where refusing and passing are both
+// defensible. Passing makes every unreadable artifact publish.
+test('NEGATIVE: a binary with no record to read is refused, not passed', () =>
+	withTempDir('kit-check-blank-', async (root) => {
+		const pkg = checkedPkg();
+		mkdirSync(join(packageDir(root, pkg.dirName), 'bin'), { recursive: true });
+		writeFileSync(join(packageDir(root, pkg.dirName), 'bin', 'agent'), 'CONNECTIONS_CHECK and nothing else');
+		const reasons = verifyPackage({ root, pkg, version: '1.0.0', run: packs(CHECKED_FILES, { name: pkg.name }) });
+		assert.match(one(reasons, 'reason'), /carries no build-tag record/);
+	}));
+
+// A check that cannot run has not established the binary is fine. Passing on the exception is how a gate
+// comes to approve every artifact it failed to parse.
+test('NEGATIVE: a check that throws refuses rather than passing', () =>
+	withTempDir('kit-check-throws-', async (root) => {
+		const pkg = one(
+			packagesFor(
+				{
+					scope: '@x/agent',
+					variants: [{ suffix: '' }],
+					binaries: [
+						{
+							shipsAs: 'agent',
+							check: () => {
+								throw new Error('the record is not where this expected');
+							},
+						},
+					],
+				},
+				LINUX
+			),
+			'package'
+		);
+		mkdirSync(join(packageDir(root, pkg.dirName), 'bin'), { recursive: true });
+		writeFileSync(join(packageDir(root, pkg.dirName), 'bin', 'agent'), 'anything');
+		const reasons = verifyPackage({ root, pkg, version: '1.0.0', run: packs(CHECKED_FILES, { name: pkg.name }) });
+		assert.match(one(reasons, 'reason'), /its check threw: the record is not where this expected/);
+	}));

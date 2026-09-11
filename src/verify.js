@@ -81,7 +81,7 @@ export function verifyPackage({ root, pkg, version, run }) {
 	// A symbol is a claim about what a binary was built WITH, and the only kind of defect a file listing
 	// cannot see: a binary present, correctly named, the right size, and compiled without the thing it is for.
 	for (const binary of pkg.binaries) {
-		if (!binary.symbol) continue;
+		if (!binary.symbol && !binary.check) continue;
 		const file = join(dir, 'bin', `${binary.shipsAs}${pkg.target.exe}`);
 		let contents;
 		try {
@@ -90,11 +90,23 @@ export function verifyPackage({ root, pkg, version, run }) {
 			reasons.push(`${pkg.name}: ${binary.shipsAs} is not readable at ${file}`);
 			continue;
 		}
-		if (!contents.includes(binary.symbol)) {
+		if (binary.symbol && !contents.includes(binary.symbol)) {
 			reasons.push(
 				`${pkg.name}: ${binary.shipsAs} does not contain ${JSON.stringify(binary.symbol)}, so it was built ` +
 					`without the capability that symbol stands for`
 			);
+		}
+		// The consumer's own question about the same bytes. A throw is a refusal too: a check that cannot
+		// read what it needs has not established the binary is fine, and passing on the exception is how a
+		// gate comes to approve every artifact whose record it failed to parse.
+		if (binary.check) {
+			let refusal;
+			try {
+				refusal = binary.check(contents, binary);
+			} catch (error) {
+				refusal = `its check threw: ${error instanceof Error ? error.message : String(error)}`;
+			}
+			if (refusal) reasons.push(`${pkg.name}: ${binary.shipsAs} ${refusal}`);
 		}
 	}
 	return reasons;
