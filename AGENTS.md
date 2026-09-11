@@ -9,10 +9,13 @@ The packaging half of shipping a native binary from a Harper component, taken ou
 `src/` and `scripts/`, and about 800 of them had nothing to do with Datadog. Any plugin shipping a binary
 writes the same 800 again.
 
-Two entry points, and the split is load-bearing:
+Three entry points, and the first split is load-bearing:
 
 - `./resolve` runs inside a Harper node. No dependencies, and it must stay that way.
 - `./cli` runs on a CI runner. It may grow dependencies; nothing a customer installs loads it.
+- `./layout` is the path convention both halves and the consumer's own build step read. It is separate
+  because a build has to write `build/<target>/bin` before any of this runs, and a build that hardcodes that
+  is the fifth process agreeing with a declaration nothing checks it against.
 
 ## Why they are one package
 

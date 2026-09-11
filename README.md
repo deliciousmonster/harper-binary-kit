@@ -48,7 +48,17 @@ export default {
 ```
 
 Building is yours. Leave the binaries at `build/<target>/bin` and anything shipped beside them under
-`build/<target>/`, and the kit takes it from there.
+`build/<target>/`, and the kit takes it from there. A build step that would rather ask than hardcode those
+paths imports them:
+
+```js
+import { buildTree } from '@deliciousmonster/harper-binary-kit/layout';
+
+const { bin, share } = buildTree(process.cwd(), 'linux-x86_64');
+```
+
+Four processes meet at those paths on four separate runners, so a build that recomputes them is a convention
+with two owners.
 
 ## Resolve, at runtime
 

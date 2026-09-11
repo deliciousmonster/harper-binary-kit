@@ -19,6 +19,7 @@
 	"exports": {
 		"./resolve": "./src/resolve.js",
 		"./cli": "./src/cli.js",
+		"./layout": "./src/layout.js",
 		"./package.json": "./package.json"
 	},
 	"bin": {
