@@ -2,7 +2,8 @@
 # build matrix is all a caller passes, since only the caller knows how to build.
 #
 # Under .github/workflows/ because GitHub resolves a called workflow nowhere else, and a copy anywhere tidier
-# fails at trigger time with "workflow was not found".
+# fails at trigger time with "workflow was not found". Every action is SHA-pinned, since a caller's org may
+# refuse a tag and the refusal lands on the caller's run, not on this repository's.
 
 on:
   workflow_call:
@@ -33,9 +34,9 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: ${{ inputs.node-version-file }}
           registry-url: https://registry.npmjs.org
@@ -44,7 +45,7 @@ jobs:
 
       # Every artifact a build job uploaded, into the tree the kit reads. Named by target, so the layout is
       # the kit's own rather than a shape reconstructed here.
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: artifacts
 

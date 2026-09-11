@@ -3,6 +3,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readdirSync, readFileSync } from 'node:fs';
 
 import { allPackages, binariesFor, expectedFiles, optionalDependencies, packagesFor } from '../../src/packages.js';
 import { currentTargetName, target, targets } from '../../src/targets.js';
@@ -131,4 +132,17 @@ test('a plain string extra directory is carried on every target the variant publ
 	for (const name of ['linux-x86_64', 'macos-arm64', 'windows-x86_64']) {
 		assert.deepEqual(one(packagesFor(config, target(name)), 'package').extraDirs, ['share/anything'], name);
 	}
+});
+
+// An org can refuse a workflow naming an action by tag, and for the reusable workflow here that refusal
+// lands on the CALLER's run: theirs fails at job setup with nothing this repository's own CI would catch.
+test('every action in the workflows is pinned to a commit SHA', () => {
+	const dir = new URL('../../.github/workflows/', import.meta.url);
+	const unpinned = [];
+	for (const file of readdirSync(dir)) {
+		for (const [, ref] of readFileSync(new URL(file, dir), 'utf-8').matchAll(/uses:\s*(\S+)/g)) {
+			if (!/@[0-9a-f]{40}$|@sha256:[0-9a-f]{64}$/.test(ref)) unpinned.push(`${file}: ${ref}`);
+		}
+	}
+	assert.deepEqual(unpinned, []);
 });
