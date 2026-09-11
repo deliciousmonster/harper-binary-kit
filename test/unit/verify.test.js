@@ -1,0 +1,137 @@
+// The gate, which reads the tarball rather than the tree.
+//
+// `npm pack` applies `files`, `.npmignore` and npm's own lists, so a package can look right in a checkout and
+// ship without the binary it exists for. That happened: a package published with no trace-agent in it, from a
+// tree where the file was plainly sitting there.
+
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+import { packageDir } from '../../src/layout.js';
+import { packagesFor } from '../../src/packages.js';
+import { verifyAll, verifyPackage } from '../../src/verify.js';
+import { target } from '../../src/targets.js';
+import { one, withTempDir } from '../support/sandbox.js';
+
+const CONFIG = {
+	scope: '@x/agent',
+	variants: [{ suffix: '' }],
+	binaries: [{ shipsAs: 'agent', symbol: 'CONNECTIONS_CHECK' }, { shipsAs: 'trace-agent' }],
+};
+const LINUX = target('linux-x86_64');
+const PKG = one(packagesFor(CONFIG, LINUX), 'package');
+
+/** npm's `pack --dry-run --json`, as the real one answers. */
+const packs =
+	(/** @type {string[]} */ files, { name = PKG.name, version = '1.0.0' } = {}) =>
+	() =>
+		JSON.stringify([{ name, version, size: 1024, files: files.map((/** @type {string} */ path) => ({ path })) }]);
+
+/** Stage just enough on disk for the symbol read, which is the one check that opens a file. */
+function withBinaries(/** @type {string} */ root, /** @type {Record<string, string>} */ contents) {
+	const dir = join(packageDir(root, PKG.dirName), 'bin');
+	mkdirSync(dir, { recursive: true });
+	for (const [name, body] of Object.entries(contents)) writeFileSync(join(dir, name), body);
+	return root;
+}
+
+const COMPLETE = ['bin/agent', 'bin/trace-agent', 'index.js', 'package.json', 'README.md'];
+
+test('a complete tarball at the right version has nothing to say', () =>
+	withTempDir('kit-verify-', async (root) => {
+		withBinaries(root, { 'agent': 'built with CONNECTIONS_CHECK inside', 'trace-agent': 'x' });
+		assert.deepEqual(verifyPackage({ root, pkg: PKG, version: '1.0.0', run: packs(COMPLETE) }), []);
+	}));
+
+// The defect this gate was built for.
+test('NEGATIVE: a tarball missing a binary is refused, naming the file', () =>
+	withTempDir('kit-missing-file-', async (root) => {
+		withBinaries(root, { 'agent': 'CONNECTIONS_CHECK', 'trace-agent': 'x' });
+		const reasons = verifyPackage({
+			root,
+			pkg: PKG,
+			version: '1.0.0',
+			run: packs(['bin/agent', 'index.js', 'package.json']),
+		});
+		assert.deepEqual(reasons, ['@x/agent-linux-x86_64: the tarball does not carry bin/trace-agent']);
+	}));
+
+// A platform package a version behind is not installed, it is refused: the base package pins its
+// optionalDependencies at exactly one version.
+test('NEGATIVE: a package staged at the wrong version is refused', () =>
+	withTempDir('kit-version-', async (root) => {
+		withBinaries(root, { 'agent': 'CONNECTIONS_CHECK', 'trace-agent': 'x' });
+		const reasons = verifyPackage({
+			root,
+			pkg: PKG,
+			version: '1.1.0',
+			run: packs(COMPLETE, { version: '1.0.0' }),
+		});
+		assert.deepEqual(reasons, ['@x/agent-linux-x86_64: staged at 1.0.0, and this release is 1.1.0']);
+	}));
+
+// The one defect a file listing cannot see: present, correctly named, right size, built without the thing it
+// exists for. This is how an agent shipped with its connections check compiled out.
+test('NEGATIVE: a binary built without its capability is refused, whatever the listing says', () =>
+	withTempDir('kit-symbol-', async (root) => {
+		withBinaries(root, { 'agent': 'a build with the check compiled out', 'trace-agent': 'x' });
+		const reasons = verifyPackage({ root, pkg: PKG, version: '1.0.0', run: packs(COMPLETE) });
+		assert.equal(reasons.length, 1);
+		assert.match(String(reasons[0]), /agent does not contain "CONNECTIONS_CHECK"/);
+		assert.match(String(reasons[0]), /built without the capability/);
+	}));
+
+test('every reason is reported, not just the first', () =>
+	withTempDir('kit-all-reasons-', async (root) => {
+		withBinaries(root, { 'agent': 'no marker here', 'trace-agent': 'x' });
+		const reasons = verifyPackage({
+			root,
+			pkg: PKG,
+			version: '2.0.0',
+			run: packs(['bin/agent', 'index.js'], { version: '1.0.0' }),
+		});
+		// Wrong version, a missing binary, a missing manifest and a missing symbol: one run names all four, or
+		// a release is fixed one re-run at a time.
+		assert.equal(reasons.length, 4, reasons.join('\n'));
+	}));
+
+test('NEGATIVE: a package npm cannot pack at all is a reason, not a crash', () =>
+	withTempDir('kit-unpackable-', async (root) => {
+		const reasons = verifyPackage({
+			root,
+			pkg: PKG,
+			version: '1.0.0',
+			run: () => {
+				throw new Error('ENOENT: no such file or directory');
+			},
+		});
+		assert.equal(reasons.length, 1);
+		assert.match(String(reasons[0]), /npm could not pack/);
+	}));
+
+test('NEGATIVE: a staged manifest naming a different package is refused', () =>
+	withTempDir('kit-wrongname-', async (root) => {
+		withBinaries(root, { 'agent': 'CONNECTIONS_CHECK', 'trace-agent': 'x' });
+		const reasons = verifyPackage({
+			root,
+			pkg: PKG,
+			version: '1.0.0',
+			run: packs(COMPLETE, { name: '@x/agent-linux-arm64' }),
+		});
+		assert.deepEqual(reasons, ['@x/agent-linux-x86_64: the staged manifest names @x/agent-linux-arm64']);
+	}));
+
+test('the whole release is checked, and one bad package does not hide another', () =>
+	withTempDir('kit-release-', async (root) => {
+		withBinaries(root, { 'agent': 'CONNECTIONS_CHECK', 'trace-agent': 'x' });
+		const reasons = verifyAll({
+			root,
+			packages: [PKG, /** @type {any} */ ({ ...PKG, name: '@x/agent-macos-arm64', dirName: 'macos-arm64' })],
+			version: '1.0.0',
+			run: packs(['index.js', 'package.json']),
+		});
+		assert.ok(reasons.some((r) => r.startsWith('@x/agent-linux-x86_64')));
+		assert.ok(reasons.some((r) => r.startsWith('@x/agent-macos-arm64')));
+	}));

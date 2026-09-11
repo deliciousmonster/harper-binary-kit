@@ -1,0 +1,98 @@
+# The release, as a workflow a consumer calls rather than copies.
+#
+# What used to be here in shell: a loop reconstructing `build/<target>/bin` from artifact names, a glob over
+# `npm/*/` to decide what to publish, a glob over `agent-*` to name the release assets, and 25 lines of
+# `strings | grep | sort -V` for the symbol floor. Each rediscovered the package set from the filesystem, and
+# each had to agree with a declaration nothing checked it against. A target that silently failed to build was
+# a package that was silently not published.
+#
+# Now every step reads binary-kit.config.js. The build matrix is the one thing a caller still passes, because
+# only the caller knows how to build.
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: The version to release. Usually the tag without its leading v.
+        required: true
+        type: string
+      targets:
+        description: JSON array of target names, matching binary-kit.config.js.
+        required: true
+        type: string
+      node-version-file:
+        description: Where the node version comes from. package.json's engines by default.
+        required: false
+        default: package.json
+        type: string
+    secrets:
+      NPM_TOKEN:
+        description: Only for dist-tag writes. Publishing itself uses the job's OIDC identity.
+        required: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: ${{ inputs.node-version-file }}
+          registry-url: https://registry.npmjs.org
+
+      - run: npm ci
+
+      # Every artifact a build job uploaded, into the tree the kit reads. Named by target, so the layout is
+      # the kit's own rather than a shape reconstructed here.
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Put the artifacts where the kit looks for them
+        run: |
+          set -euo pipefail
+          for target in $(echo '${{ inputs.targets }}' | node -e 'JSON.parse(require("node:fs").readFileSync(0,"utf8")).forEach(t=>console.log(t))'); do
+            if [ -d "artifacts/bin-$target" ]; then
+              mkdir -p "build/$target/bin"
+              mv "artifacts/bin-$target"/* "build/$target/bin/"
+            fi
+            # Anything shipped beside the binaries keeps its own path under the build tree, which is what
+            # `extraDirs` names and what the staging copies verbatim.
+            if [ -d "artifacts/share-$target" ]; then
+              mkdir -p "build/$target/share"
+              mv "artifacts/share-$target"/* "build/$target/share/"
+            fi
+          done
+
+      # The release's version, set the way npm sets it, so optionalDependencies move with it. --allow-same-version
+      # makes a re-run of the same tag safe.
+      - name: Set the version from the release
+        run: npm version '${{ inputs.version }}' --no-git-tag-version --allow-same-version
+
+      - run: npx harper-binary-kit stage
+
+      - name: Symbol floors
+        run: |
+          set -euo pipefail
+          for target in $(npx harper-binary-kit names >/dev/null 2>&1; echo '${{ inputs.targets }}' | node -e 'JSON.parse(require("node:fs").readFileSync(0,"utf8")).forEach(t=>console.log(t))'); do
+            npx harper-binary-kit floor "$target"
+          done
+
+      - run: npx harper-binary-kit verify
+
+      # Publishing authenticates by the job's OIDC identity through npm trusted publishers. No token is read
+      # here, and none is needed.
+      - run: npx harper-binary-kit publish
+
+      # `dist-tag add` is the one step OIDC has not covered in practice: a job that had just published ten
+      # packages was answered E401 for every tag write. A token is used when one is provided, and the step
+      # fails with the exact commands when neither works, rather than leaving `latest` silently stale.
+      - name: Point latest at this release
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npx harper-binary-kit latest

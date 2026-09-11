@@ -1,0 +1,152 @@
+// Staging, and the two ways it used to succeed at nothing.
+//
+// A staging that writes no package and reports success, and a package staged around a binary that is not
+// there. Both shipped: `--only <name>` filtered against the current host's platform and matched nothing on a
+// machine of a different one, printing "created successfully" having created none.
+
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+import { buildTree, packageDir } from '../../src/layout.js';
+import { packagesFor } from '../../src/packages.js';
+import { accessorName, indexModule, stageAll, stagePackage } from '../../src/stage.js';
+import { target, targets } from '../../src/targets.js';
+import { one, withTempDir } from '../support/sandbox.js';
+
+const CONFIG = {
+	scope: '@x/agent',
+	variants: [{ suffix: '' }, { suffix: '-probe', optional: true, extraDirs: ['share/probe'] }],
+	binaries: [{ shipsAs: 'agent' }, { shipsAs: 'probe', variant: '-probe' }],
+	manifest: { license: 'Apache-2.0', author: 'Someone' },
+};
+const LINUX = target('linux-x86_64');
+
+function build(
+	/** @type {string} */ root,
+	on = LINUX,
+	{ binaries = ['agent', 'probe'], extras = ['share/probe'] } = {}
+) {
+	const tree = buildTree(root, on.name);
+	mkdirSync(tree.bin, { recursive: true });
+	for (const name of binaries) writeFileSync(join(tree.bin, `${name}${on.exe}`), `binary ${name}`);
+	for (const extra of extras) {
+		mkdirSync(join(tree.root, extra), { recursive: true });
+		writeFileSync(join(tree.root, extra, 'object.o'), 'objects');
+	}
+	return tree;
+}
+
+test('a staged package carries the binaries, the manifest npm filters on, and the index', () =>
+	withTempDir('kit-stage-', async (root) => {
+		build(root);
+		const base = one(packagesFor(CONFIG, LINUX), 'base package');
+		const dir = stagePackage({ root, pkg: base, version: '3.1.0', manifest: CONFIG.manifest });
+
+		const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf-8'));
+		assert.equal(manifest.name, '@x/agent-linux-x86_64');
+		assert.equal(manifest.version, '3.1.0');
+		assert.deepEqual(manifest.os, ['linux']);
+		assert.deepEqual(manifest.cpu, ['x64']);
+		assert.equal(manifest.license, 'Apache-2.0', 'the consumer’s own manifest fields carry through');
+		assert.ok(manifest.files.includes('bin/'));
+		assert.ok(existsSync(join(dir, 'bin', 'agent')));
+		assert.ok(existsSync(join(dir, 'index.js')));
+	}));
+
+// npm packs the mode it finds, so a binary staged without this installs unexecutable and the failure is at
+// spawn time on the customer's node.
+test('the executable bit survives staging', () =>
+	withTempDir('kit-mode-', async (root) => {
+		build(root);
+		const base = one(packagesFor(CONFIG, LINUX), 'base package');
+		const dir = stagePackage({ root, pkg: base, version: '1.0.0', manifest: {} });
+		assert.equal(statSync(join(dir, 'bin', 'agent')).mode & 0o111, 0o111);
+	}));
+
+test('a variant that ships extra directories stages them and exports an accessor', () =>
+	withTempDir('kit-extras-', async (root) => {
+		build(root);
+		const probe = one(packagesFor(CONFIG, LINUX), 'probe package', 1);
+		const dir = stagePackage({ root, pkg: probe, version: '1.0.0', manifest: {} });
+		assert.ok(existsSync(join(dir, 'share', 'probe', 'object.o')));
+		const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf-8'));
+		assert.ok(manifest.files.includes('share/probe/'), 'staged but not listed in files is staged and not shipped');
+		assert.match(readFileSync(join(dir, 'index.js'), 'utf-8'), /getShareProbeDir/);
+	}));
+
+test('the accessor name follows one rule, so a consumer can predict it', () => {
+	assert.equal(accessorName('share/probe'), 'getShareProbeDir');
+	assert.equal(accessorName('share/system-probe'), 'getShareSystemProbeDir');
+	assert.equal(accessorName('lib'), 'getLibDir');
+});
+
+// A package staged around a missing binary is one npm publishes and nothing can run, and the build that was
+// supposed to produce it failed somewhere upstream where nobody looked.
+test('NEGATIVE: a binary the build did not produce stops the staging, naming the path', () =>
+	withTempDir('kit-missing-', async (root) => {
+		build(root, LINUX, { binaries: ['agent'] });
+		const probe = one(packagesFor(CONFIG, LINUX), 'probe package', 1);
+		assert.throws(
+			() => stagePackage({ root, pkg: probe, version: '1.0.0', manifest: {} }),
+			(/** @type {any} */ error) => {
+				assert.match(error.message, /carries probe and there is nothing at/);
+				assert.match(error.message, /Run the build for linux-x86_64/);
+				return true;
+			}
+		);
+	}));
+
+test('NEGATIVE: an extra directory the build did not produce stops the staging too', () =>
+	withTempDir('kit-noextra-', async (root) => {
+		build(root, LINUX, { extras: [] });
+		const probe = one(packagesFor(CONFIG, LINUX), 'probe package', 1);
+		assert.throws(
+			() => stagePackage({ root, pkg: probe, version: '1.0.0', manifest: {} }),
+			(/** @type {any} */ error) => {
+				assert.match(error.message, /ships share\/probe and there is nothing at/);
+				// The reason it matters: the binary starts and does nothing, which is worse than failing to start.
+				assert.match(error.message, /worse than failing to start/);
+				return true;
+			}
+		);
+	}));
+
+// The failure that reads as success. `--only` on a machine of another platform matched no package, and the
+// staging printed "created successfully" having written none.
+test('NEGATIVE: an --only that matches nothing is an error, not a quiet success', () =>
+	withTempDir('kit-only-', async (root) => {
+		build(root);
+		assert.throws(
+			() => stageAll({ root, config: CONFIG, version: '1.0.0', targets: [LINUX], only: 'probe-macos-arm64' }),
+			/no package named "probe-macos-arm64" among the targets given \(linux-x86_64\)/
+		);
+	}));
+
+test('NEGATIVE: staging with no targets at all is an error', () =>
+	withTempDir('kit-none-', async (root) => {
+		assert.throws(() => stageAll({ root, config: CONFIG, version: '1.0.0', targets: [] }), /no packages were staged/);
+	}));
+
+test('--only stages exactly the one package, from its own target tree', () =>
+	withTempDir('kit-one-', async (root) => {
+		build(root);
+		const staged = stageAll({
+			root,
+			config: CONFIG,
+			version: '1.0.0',
+			targets: targets(['linux-x86_64', 'macos-arm64']),
+			only: 'probe-linux-x86_64',
+		});
+		assert.deepEqual(staged, ['@x/agent-probe-linux-x86_64']);
+		assert.ok(existsSync(packageDir(root, 'probe-linux-x86_64')));
+		assert.ok(!existsSync(packageDir(root, 'linux-x86_64')), 'it staged a package it was not asked for');
+	}));
+
+test('the generated module is CommonJS, since a platform package is required by whatever loader a host has', () => {
+	const source = indexModule({ agent: 'agent' }, []);
+	assert.match(source, /module\.exports = \{/);
+	assert.match(source, /require\('path'\)/);
+	assert.doesNotMatch(source, /\bexport\b/);
+});
