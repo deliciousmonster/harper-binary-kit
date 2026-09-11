@@ -20,6 +20,8 @@
 		"./resolve": "./src/resolve.js",
 		"./cli": "./src/cli.js",
 		"./layout": "./src/layout.js",
+		"./packages": "./src/packages.js",
+		"./targets": "./src/targets.js",
 		"./package.json": "./package.json"
 	},
 	"bin": {

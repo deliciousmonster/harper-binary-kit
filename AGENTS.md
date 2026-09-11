@@ -13,9 +13,10 @@ Three entry points, and the first split is load-bearing:
 
 - `./resolve` runs inside a Harper node. No dependencies, and it must stay that way.
 - `./cli` runs on a CI runner. It may grow dependencies; nothing a customer installs loads it.
-- `./layout` is the path convention both halves and the consumer's own build step read. It is separate
-  because a build has to write `build/<target>/bin` before any of this runs, and a build that hardcodes that
-  is the fifth process agreeing with a declaration nothing checks it against.
+- `./layout`, `./packages` and `./targets` are the pure derivations, exported because a consumer's own
+  tests have to ask what its config resolves to. `./layout` is also what a build step reads before any of
+  this runs: a build that hardcodes `build/<target>/bin` is a fifth process agreeing with a declaration
+  nothing checks it against. None of the three reads a file or spawns anything.
 
 ## Why they are one package
 
