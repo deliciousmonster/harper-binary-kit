@@ -10,7 +10,7 @@ import { buildTree, packageDir } from '../../src/layout.js';
 import { packagesFor } from '../../src/packages.js';
 import { accessorName, indexModule, stageAll, stagePackage } from '../../src/stage.js';
 import { target, targets } from '../../src/targets.js';
-import { one, withTempDir } from '../support/sandbox.js';
+import { carriesExecutableBit, one, withTempDir } from '../support/sandbox.js';
 
 const CONFIG = {
 	scope: '@x/agent',
@@ -19,6 +19,7 @@ const CONFIG = {
 	manifest: { license: 'Apache-2.0', author: 'Someone' },
 };
 const LINUX = target('linux-x86_64');
+const WINDOWS = target('windows-x86_64');
 
 function build(
 	/** @type {string} */ root,
@@ -53,13 +54,26 @@ test('a staged package carries the binaries, the manifest npm filters on, and th
 	}));
 
 // npm packs the mode it finds, so a binary staged without this installs unexecutable and the failure is at
-// spawn time on the customer's node.
-test('the executable bit survives staging', () =>
+// spawn time on the customer's node. NTFS cannot carry the bit, so there the staging has to refuse instead.
+test('the executable bit survives staging, and staging refuses where it cannot', () =>
 	withTempDir('kit-mode-', async (root) => {
 		build(root);
 		const base = one(packagesFor(CONFIG, LINUX), 'base package');
+		const stage = () => stagePackage({ root, pkg: base, version: '1.0.0', manifest: {} });
+		if (carriesExecutableBit(root)) {
+			assert.equal(statSync(join(stage(), 'bin', 'agent')).mode & 0o111, 0o111);
+		} else {
+			assert.throws(stage, /did not keep its executable bit/);
+		}
+	}));
+
+// Windows packages are the case that still has to work on Windows: the .exe carries no bit to lose.
+test('a windows package stages wherever it is staged', () =>
+	withTempDir('kit-winmode-', async (root) => {
+		build(root, WINDOWS);
+		const base = one(packagesFor(CONFIG, WINDOWS), 'base package');
 		const dir = stagePackage({ root, pkg: base, version: '1.0.0', manifest: {} });
-		assert.equal(statSync(join(dir, 'bin', 'agent')).mode & 0o111, 0o111);
+		assert.ok(existsSync(join(dir, 'bin', 'agent.exe')));
 	}));
 
 test('a variant that ships extra directories stages them and exports an accessor', () =>

@@ -27,3 +27,13 @@ export function one(list, what, index = 0) {
 	if (found === undefined) throw new Error(`the fixture produced no ${what} at index ${index}`);
 	return found;
 }
+
+/** Whether `dir`'s filesystem keeps an executable bit. NTFS does not, and no chmod there makes it. @param {string} dir */
+export function carriesExecutableBit(dir) {
+	const probe = path.join(dir, '.exec-probe');
+	fs.writeFileSync(probe, '');
+	fs.chmodSync(probe, 0o755);
+	const carried = (fs.statSync(probe).mode & 0o111) === 0o111;
+	fs.rmSync(probe);
+	return carried;
+}

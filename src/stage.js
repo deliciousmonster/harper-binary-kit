@@ -2,7 +2,7 @@
 // A build tree into publishable packages: the manifest, the binaries, the README, and the index.js that
 // exports the getBinaryPath resolve.js calls. Builds nothing, and refuses a binary the build did not leave.
 
-import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { buildTree, packageDir } from './layout.js';
@@ -83,6 +83,15 @@ export function stagePackage({ root, pkg, version, manifest, describe = defaultD
 		copyFileSync(from, to);
 		// npm preserves the mode it packed, so a binary staged without this installs unexecutable.
 		chmodSync(to, 0o755);
+		// NTFS cannot carry the bit, so a POSIX package staged on Windows packs a binary nothing can run and
+		// reports success. The mode is read back rather than the chmod trusted.
+		if (pkg.target.os !== 'windows' && (statSync(to).mode & 0o111) !== 0o111) {
+			throw new Error(
+				`${pkg.name} staged ${file} and this filesystem did not keep its executable bit. npm packs the ` +
+					`mode it finds, so the published package would install a binary nothing can run. Stage ` +
+					`${pkg.target.name} on a host whose filesystem carries the bit.`
+			);
+		}
 	}
 
 	for (const extra of pkg.extraDirs) {
