@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { buildTree, packageDir } from '../../src/layout.js';
 import { packagesFor } from '../../src/packages.js';
 import { accessorName, indexModule, stageAll, stagePackage } from '../../src/stage.js';
-import { target, targets } from '../../src/targets.js';
+import { currentTargetName, target, targets } from '../../src/targets.js';
 import { carriesExecutableBit, one, withTempDir } from '../support/sandbox.js';
 
 const CONFIG = {
@@ -20,10 +20,14 @@ const CONFIG = {
 };
 const LINUX = target('linux-x86_64');
 const WINDOWS = target('windows-x86_64');
+// Staging is what a release runner does for its own platform, and a POSIX package staged on Windows is
+// refused, so the fixtures stage the host's target the way a release leg does.
+const HOST = target(currentTargetName() ?? 'linux-x86_64');
+const OTHER = HOST.name === 'macos-arm64' ? LINUX : target('macos-arm64');
 
 function build(
 	/** @type {string} */ root,
-	on = LINUX,
+	on = HOST,
 	{ binaries = ['agent', 'probe'], extras = ['share/probe'] } = {}
 ) {
 	const tree = buildTree(root, on.name);
@@ -39,17 +43,18 @@ function build(
 test('a staged package carries the binaries, the manifest npm filters on, and the index', () =>
 	withTempDir('kit-stage-', async (root) => {
 		build(root);
-		const base = one(packagesFor(CONFIG, LINUX), 'base package');
+		const base = one(packagesFor(CONFIG, HOST), 'base package');
 		const dir = stagePackage({ root, pkg: base, version: '3.1.0', manifest: CONFIG.manifest });
 
 		const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf-8'));
-		assert.equal(manifest.name, '@x/agent-linux-x86_64');
+		assert.equal(manifest.name, `@x/agent-${HOST.name}`);
 		assert.equal(manifest.version, '3.1.0');
-		assert.deepEqual(manifest.os, ['linux']);
-		assert.deepEqual(manifest.cpu, ['x64']);
+		// npm's names, not the label's: `macos-arm64` filters on darwin, and the label would match no host.
+		assert.deepEqual(manifest.os, [HOST.npmOs]);
+		assert.deepEqual(manifest.cpu, [HOST.npmCpu]);
 		assert.equal(manifest.license, 'Apache-2.0', 'the consumer’s own manifest fields carry through');
 		assert.ok(manifest.files.includes('bin/'));
-		assert.ok(existsSync(join(dir, 'bin', 'agent')));
+		assert.ok(existsSync(join(dir, 'bin', `agent${HOST.exe}`)));
 		assert.ok(existsSync(join(dir, 'index.js')));
 	}));
 
@@ -57,7 +62,7 @@ test('a staged package carries the binaries, the manifest npm filters on, and th
 // spawn time on the customer's node. NTFS cannot carry the bit, so there the staging has to refuse instead.
 test('the executable bit survives staging, and staging refuses where it cannot', () =>
 	withTempDir('kit-mode-', async (root) => {
-		build(root);
+		build(root, LINUX);
 		const base = one(packagesFor(CONFIG, LINUX), 'base package');
 		const stage = () => stagePackage({ root, pkg: base, version: '1.0.0', manifest: {} });
 		if (carriesExecutableBit(root)) {
@@ -79,7 +84,7 @@ test('a windows package stages wherever it is staged', () =>
 test('a variant that ships extra directories stages them and exports an accessor', () =>
 	withTempDir('kit-extras-', async (root) => {
 		build(root);
-		const probe = one(packagesFor(CONFIG, LINUX), 'probe package', 1);
+		const probe = one(packagesFor(CONFIG, HOST), 'probe package', 1);
 		const dir = stagePackage({ root, pkg: probe, version: '1.0.0', manifest: {} });
 		assert.ok(existsSync(join(dir, 'share', 'probe', 'object.o')));
 		const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf-8'));
@@ -97,13 +102,15 @@ test('the accessor name follows one rule, so a consumer can predict it', () => {
 // supposed to produce it failed somewhere upstream where nobody looked.
 test('NEGATIVE: a binary the build did not produce stops the staging, naming the path', () =>
 	withTempDir('kit-missing-', async (root) => {
-		build(root, LINUX, { binaries: ['agent'] });
-		const probe = one(packagesFor(CONFIG, LINUX), 'probe package', 1);
+		build(root, HOST, { binaries: ['agent'] });
+		const probe = one(packagesFor(CONFIG, HOST), 'probe package', 1);
 		assert.throws(
 			() => stagePackage({ root, pkg: probe, version: '1.0.0', manifest: {} }),
 			(/** @type {any} */ error) => {
-				assert.match(error.message, /carries probe and there is nothing at/);
-				assert.match(error.message, /Run the build for linux-x86_64/);
+				// The filename, not the shipsAs name: on Windows it is probe.exe, and a message naming the wrong
+				// file sends whoever reads it to look for something that was never going to be there.
+				assert.ok(error.message.includes(`carries probe${HOST.exe} and there is nothing at`), error.message);
+				assert.ok(error.message.includes(`Run the build for ${HOST.name}`), error.message);
 				return true;
 			}
 		);
@@ -111,8 +118,8 @@ test('NEGATIVE: a binary the build did not produce stops the staging, naming the
 
 test('NEGATIVE: an extra directory the build did not produce stops the staging too', () =>
 	withTempDir('kit-noextra-', async (root) => {
-		build(root, LINUX, { extras: [] });
-		const probe = one(packagesFor(CONFIG, LINUX), 'probe package', 1);
+		build(root, HOST, { extras: [] });
+		const probe = one(packagesFor(CONFIG, HOST), 'probe package', 1);
 		assert.throws(
 			() => stagePackage({ root, pkg: probe, version: '1.0.0', manifest: {} }),
 			(/** @type {any} */ error) => {
@@ -147,12 +154,12 @@ test('--only stages exactly the one package, from its own target tree', () =>
 			root,
 			config: CONFIG,
 			version: '1.0.0',
-			targets: targets(['linux-x86_64', 'macos-arm64']),
-			only: 'probe-linux-x86_64',
+			targets: [HOST, OTHER],
+			only: `probe-${HOST.name}`,
 		});
-		assert.deepEqual(staged, ['@x/agent-probe-linux-x86_64']);
-		assert.ok(existsSync(packageDir(root, 'probe-linux-x86_64')));
-		assert.ok(!existsSync(packageDir(root, 'linux-x86_64')), 'it staged a package it was not asked for');
+		assert.deepEqual(staged, [`@x/agent-probe-${HOST.name}`]);
+		assert.ok(existsSync(packageDir(root, `probe-${HOST.name}`)));
+		assert.ok(!existsSync(packageDir(root, HOST.name)), 'it staged a package it was not asked for');
 	}));
 
 test('the generated module is CommonJS, since a platform package is required by whatever loader a host has', () => {
