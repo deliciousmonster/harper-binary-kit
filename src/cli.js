@@ -3,7 +3,7 @@
 // One command per release step, each reading the same config and target list. A step that rediscovers the
 // package set by globbing turns a target that failed to build into a package nobody notices is missing.
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { resolve as resolvePath } from 'node:path';
 
@@ -23,6 +23,9 @@ const fail = (message) => {
 };
 
 const say = (/** @type {string} */ message) => process.stdout.write(`${message}\n`);
+
+/** The indent a manifest already uses, so rewriting it does not reformat every line. @param {string} source */
+const indentOf = (source) => (/^\t/m.test(source) ? '\t' : (source.match(/^ +/m)?.[0].length ?? 2));
 
 /**
  * The consumer's config and the version it is releasing. Both are read from the repo rather than passed, so a
@@ -83,9 +86,19 @@ const COMMANDS = {
 	},
 
 	/** What optionalDependencies should say at this version, as JSON on stdout. */
-	async deps(/** @type {string} */ root) {
+	// `--write` applies the block to package.json. It was accepted and ignored until 2026-09-14, so
+	// `npm version` ran this as its lifecycle script and left the old version's binaries declared.
+	async deps(/** @type {string} */ root, /** @type {string[]} */ argv) {
 		const { config, version, targetList } = await load(root);
-		say(JSON.stringify(optionalDependencies(config, targetList, version), null, '\t'));
+		const deps = optionalDependencies(config, targetList, version);
+		say(JSON.stringify(deps, null, '\t'));
+		if (!argv.includes('--write')) return;
+		const path = resolvePath(root, 'package.json');
+		const source = readFileSync(path, 'utf-8');
+		const manifest = JSON.parse(source);
+		manifest.optionalDependencies = deps;
+		writeFileSync(path, `${JSON.stringify(manifest, null, indentOf(source))}\n`);
+		say(`wrote optionalDependencies to ${path}`);
 	},
 
 	/** Every package name in the release, one per line, for a workflow that needs the list. */
@@ -99,14 +112,17 @@ const COMMANDS = {
 	async publish(/** @type {string} */ root) {
 		const { config, version, targetList } = await load(root);
 		const packages = allPackages(config, targetList);
-		const { failed, lines } = publishAll({ root, packages, version });
+		const { failed, lines } = publishAll({ root, packages, rootName: config.scope, version });
 		for (const line of lines) say(line);
+
+		// Before the read-back, not after: a package whose `npm publish` already failed is known to be absent,
+		// and waiting out the propagation budget to rediscover that delays the report by twenty minutes.
+		if (failed.length > 0) fail(`${failed.length} package(s) did not publish: ${failed.map((f) => f.name).join(', ')}`);
 
 		// Read back rather than trust the exit code: npm has reported a publish it did not make.
 		const names = [config.scope, ...packages.map((pkg) => pkg.name)];
 		const { ok, missing, lines: readBack } = await confirmPublished({ names, version });
 		for (const line of readBack) say(line);
-		if (failed.length > 0) fail(`${failed.length} package(s) did not publish: ${failed.map((f) => f.name).join(', ')}`);
 		if (!ok) fail(`the registry does not serve ${missing.join(', ')} at ${version}, whatever the publish reported`);
 		say(`every package of ${version} is on the registry under ${distTag(version)}`);
 	},

@@ -62,6 +62,44 @@ test('NEGATIVE: one failure does not stop the packages behind it', () => {
 	assert.ok(lines.some((line) => line.includes('trusted publisher')));
 });
 
+// Adopting the kit dropped the old workflow's "Publish main package" step, so v7.82.1-next.11 put eight
+// platform packages on the registry and no root. npm resolved the version to nothing installable.
+test('the root package is published too, from the repo, after the platform set', () => {
+	/** @type {string[]} */
+	const cwds = [];
+	const { published } = publishAll({
+		root: '/repo',
+		packages: PACKAGES,
+		rootName: '@x/a',
+		version: '1.0.0-next.1',
+		run: (/** @type {string} */ _c, /** @type {string[]} */ _a, /** @type {any} */ options) => {
+			cwds.push(String(options.cwd));
+			return '';
+		},
+	});
+	assert.ok(published.includes('@x/a'), 'the root package was never published');
+	assert.equal(cwds.at(-1), '/repo', 'the root publishes from the repo root, and last');
+	assert.equal(cwds.length, PACKAGES.length + 1);
+});
+
+// A root on the registry ahead of its binaries is the worse failure: npm installs it and resolves its
+// optionalDependencies to versions that are not there.
+test('NEGATIVE: the root is held back when any platform package did not publish', () => {
+	const { published, failed, lines } = publishAll({
+		root: '/repo',
+		packages: PACKAGES,
+		rootName: '@x/a',
+		version: '1.0.0-next.1',
+		run: (/** @type {string} */ _c, /** @type {string[]} */ _a, /** @type {any} */ options) => {
+			if (String(options.cwd).includes('probe')) throw new Error('404');
+			return '';
+		},
+	});
+	assert.ok(!published.includes('@x/a'), 'the root went out over a failed platform package');
+	assert.equal(failed.length, 1, 'the root must not be counted as a failure of its own');
+	assert.ok(lines.some((line) => line.includes('did not publish @x/a@1.0.0-next.1')));
+});
+
 test('every package is published under the tag the version derives', () => {
 	/** @type {string[]} */
 	const tags = [];
@@ -190,19 +228,65 @@ test('NEGATIVE: a registry that will not answer is "could not tell", with the re
 	}
 });
 
+/** A registry answering 200 for every name, with `absent` 404 until it has been asked `appearAfter` times. */
+function registry(/** @type {string[]} */ absent = [], appearAfter = Infinity) {
+	const asked = new Map();
+	const fetch = answering((url) => {
+		const name = decodeURIComponent(String(url.split('/').at(-2)));
+		const count = (asked.get(name) ?? 0) + 1;
+		asked.set(name, count);
+		if (absent.includes(name) && count <= appearAfter) return { status: 404, ok: false };
+		return { status: 200, ok: true, json: async () => ({ name, version: '1.0.0' }) };
+	});
+	return { fetch, asked };
+}
+
+/** A clock that advances only when the code under test waits, so a 20-minute deadline costs no real time. */
+function fakeClock() {
+	let t = 0;
+	return { now: () => t, wait: async (/** @type {number} */ ms) => void (t += ms) };
+}
+
 test('a release is confirmed package by package, and names the ones that are not there', async () => {
 	const { ok, missing } = await confirmPublished({
 		names: ['@x/a', '@x/a-linux-x86_64', '@x/a-probe-linux-x86_64'],
 		version: '1.0.0',
-		fetch: answering((url) => {
-			if (url.includes('probe')) return { status: 404, ok: false };
-			return {
-				status: 200,
-				ok: true,
-				json: async () => ({ name: decodeURIComponent(String(url.split('/').at(-2))), version: '1.0.0' }),
-			};
-		}),
+		fetch: registry(['@x/a-probe-linux-x86_64']).fetch,
+		...fakeClock(),
 	});
 	assert.equal(ok, false);
 	assert.deepEqual(missing, ['@x/a-probe-linux-x86_64']);
+});
+
+// The defect this is for: on 2026-09-14 the read-back ran one second after the publish and called 5 of 8
+// packages missing. All 8 were there; the last took 13 minutes to serve.
+test('a package the registry has not served yet is waited for, not called missing', async () => {
+	const { fetch, asked } = registry(['@x/a-probe-linux-x86_64'], 3);
+	const { ok, missing } = await confirmPublished({
+		names: ['@x/a', '@x/a-probe-linux-x86_64'],
+		version: '1.0.0',
+		fetch,
+		...fakeClock(),
+	});
+	assert.equal(ok, true, `it gave up on a package that did appear: ${missing.join(', ')}`);
+	assert.equal(asked.get('@x/a-probe-linux-x86_64'), 4, 'it should have asked until the answer changed');
+	assert.equal(asked.get('@x/a'), 1, 'a package already served should not be asked again');
+});
+
+// The retry must not turn a real failure into a pass, which is the whole risk of adding one.
+test('NEGATIVE: a package that never appears still fails, and the wait is bounded', async () => {
+	const clock = fakeClock();
+	const { fetch, asked } = registry(['@x/a-probe-linux-x86_64']);
+	const { ok, missing } = await confirmPublished({
+		names: ['@x/a-probe-linux-x86_64'],
+		version: '1.0.0',
+		fetch,
+		timeoutMs: 60_000,
+		intervalMs: 15_000,
+		...clock,
+	});
+	assert.equal(ok, false);
+	assert.deepEqual(missing, ['@x/a-probe-linux-x86_64']);
+	assert.equal(clock.now(), 60_000, 'it waited past its own deadline');
+	assert.equal(asked.get('@x/a-probe-linux-x86_64'), 5, 'four waits of 15s, and a read before each');
 });

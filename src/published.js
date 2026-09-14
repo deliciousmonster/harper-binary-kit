@@ -46,24 +46,47 @@ export async function isPublished(name, version, { fetch: get = globalThis.fetch
 }
 
 /**
- * Read every package of a release back and name the ones absent. Run after a wait: the version endpoint was
- * immediately consistent in every case measured, but a release is worth one retry over a false alarm.
+ * Read every package of a release back and name the ones absent, retrying the absent ones until they appear
+ * or the deadline passes. On 2026-09-14 a release read back one second after publishing reported 5 of 8
+ * missing; all 8 were there, and the last took 13 minutes to serve. Without the wait the step fails a release
+ * that worked, and a retry cannot mask a real failure because a package that never publishes never appears.
  *
  * @param {object} options
  * @param {readonly string[]} options.names @param {string} options.version
  * @param {typeof globalThis.fetch} [options.fetch] @param {string} [options.registry]
+ * @param {number} [options.timeoutMs] How long to keep asking. @param {number} [options.intervalMs]
+ * @param {(ms: number) => Promise<void>} [options.wait] @param {() => number} [options.now]
  * @returns {Promise<{ ok: boolean, missing: string[], lines: string[] }>}
  */
-export async function confirmPublished({ names, version, fetch: get, registry }) {
+export async function confirmPublished({
+	names,
+	version,
+	fetch: get,
+	registry,
+	timeoutMs = 20 * 60_000,
+	intervalMs = 15_000,
+	wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+	now = Date.now,
+}) {
+	const options = { ...(get ? { fetch: get } : {}), ...(registry ? { registry } : {}) };
+	const deadline = now() + timeoutMs;
 	const lines = [];
-	const missing = [];
-	for (const name of names) {
-		const { published, detail } = await isPublished(name, version, {
-			...(get ? { fetch: get } : {}),
-			...(registry ? { registry } : {}),
-		});
-		lines.push(detail);
-		if (!published) missing.push(name);
+	let pending = [...names];
+	let last = new Map();
+
+	for (;;) {
+		const stillMissing = [];
+		for (const name of pending) {
+			const { published, detail } = await isPublished(name, version, options);
+			last.set(name, detail);
+			if (!published) stillMissing.push(name);
+		}
+		pending = stillMissing;
+		if (pending.length === 0 || now() >= deadline) break;
+		lines.push(`waiting for the registry to serve ${pending.length} package(s): ${pending.join(', ')}`);
+		await wait(intervalMs);
 	}
-	return { ok: missing.length === 0, missing, lines };
+
+	for (const name of names) lines.push(String(last.get(name)));
+	return { ok: pending.length === 0, missing: pending, lines };
 }

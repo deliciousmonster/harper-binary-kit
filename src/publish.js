@@ -32,18 +32,20 @@ export function distTag(version) {
  *
  * @param {object} options
  * @param {string} options.root @param {readonly import('./packages.js').PlatformPackage[]} options.packages
+ * @param {string} [options.rootName] The consumer's own package, published from `root` after the platform set.
  * @param {string} options.version @param {string} [options.tag]
  * @param {(command: string, args: string[], options: any) => unknown} [options.run]
  * @returns {{ published: string[], failed: { name: string, reason: string }[], lines: string[] }}
  */
-export function publishAll({ root, packages, version, tag = distTag(version), run = execFileSync }) {
+export function publishAll({ root, packages, rootName, version, tag = distTag(version), run = execFileSync }) {
 	const published = [];
 	const failed = [];
 	const lines = [];
-	for (const pkg of packages) {
+	const attempt = packages.map((pkg) => ({ name: pkg.name, cwd: packageDir(root, pkg.dirName) }));
+	for (const pkg of attempt) {
 		try {
 			run('npm', ['publish', '--access', 'public', '--tag', tag], {
-				cwd: packageDir(root, pkg.dirName),
+				cwd: pkg.cwd,
 				encoding: 'utf-8',
 				shell: NEEDS_SHELL,
 				stdio: ['ignore', 'pipe', 'pipe'],
@@ -58,6 +60,30 @@ export function publishAll({ root, packages, version, tag = distTag(version), ru
 					`this repository and workflow; create one and re-run.`
 			);
 		}
+	}
+
+	// The root last, and only when every platform package went out: it declares them as optionalDependencies,
+	// so a root on the registry ahead of its binaries is a version npm resolves to nothing installable.
+	if (rootName && failed.length === 0) {
+		try {
+			run('npm', ['publish', '--access', 'public', '--tag', tag], {
+				cwd: root,
+				encoding: 'utf-8',
+				shell: NEEDS_SHELL,
+				stdio: ['ignore', 'pipe', 'pipe'],
+			});
+			published.push(rootName);
+			lines.push(`published ${rootName}@${version} under ${tag}`);
+		} catch (error) {
+			const reason = error instanceof Error ? error.message : String(error);
+			failed.push({ name: rootName, reason });
+			lines.push(`FAILED ${rootName}@${version}: ${reason}`);
+		}
+	} else if (rootName) {
+		lines.push(
+			`did not publish ${rootName}@${version}: ${failed.length} platform package(s) did not go out, and a root ` +
+				`whose optionalDependencies are not on the registry installs without its binaries.`
+		);
 	}
 	return { published, failed, lines };
 }
