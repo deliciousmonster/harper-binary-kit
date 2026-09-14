@@ -140,9 +140,17 @@ test('every action in the workflows is pinned to a commit SHA', () => {
 	const dir = new URL('../../.github/workflows/', import.meta.url);
 	const unpinned = [];
 	for (const file of readdirSync(dir)) {
-		for (const [, ref] of readFileSync(new URL(file, dir), 'utf-8').matchAll(/uses:\s*(\S+)/g)) {
+		for (const [, ref = ''] of readFileSync(new URL(file, dir), 'utf-8').matchAll(/uses:\s*(\S+)/g)) {
 			if (!/@[0-9a-f]{40}$|@sha256:[0-9a-f]{64}$/.test(ref)) unpinned.push(`${file}: ${ref}`);
 		}
 	}
 	assert.deepEqual(unpinned, []);
+});
+
+// Git for Windows checks out CRLF, prettier.config.mjs sets no endOfLine, and its default `lf` then rejects
+// every file on the windows-latest leg. CI is the only place that shows, and it sat red for three runs.
+test('the checkout is normalized to LF so the Windows leg sees the same bytes', () => {
+	const attributes = readFileSync(new URL('../../.gitattributes', import.meta.url), 'utf-8');
+	const normalizes = attributes.split('\n').some((line) => /^\*\s+text=auto\s+eol=lf\s*$/.test(line.trim()));
+	assert.ok(normalizes, `.gitattributes does not normalize every file to LF:\n${attributes}`);
 });
