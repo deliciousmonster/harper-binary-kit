@@ -77,3 +77,18 @@ test('every path the manifest promises to ship exists', () => {
 	const missing = manifest.files.filter((/** @type {string} */ entry) => !existsSync(new URL(entry, root)));
 	assert.deepEqual(missing, [], 'files[] names paths that are not in the repository');
 });
+
+// npm chmods a bin target at install time, so a mode-644 entry works until an install skips that step: a
+// stale node_modules/.bin link left 0.1.0-next.2's CLI unrunnable with "Permission denied". Git carries the
+// bit now, so the tarball ships it executable and no install-time repair is needed.
+test('every bin entry is executable in git, not only after npm repairs it', () => {
+	const root = fileURLToPath(new URL('../../', import.meta.url));
+	const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8'));
+	const notExecutable = Object.values(manifest.bin ?? {})
+		.map((rel) => String(rel).replace(/^\.\//, ''))
+		.filter((file) => {
+			const mode = execFileSync('git', ['ls-files', '-s', file], { cwd: root, encoding: 'utf-8' }).split(/\s+/)[0];
+			return mode !== '100755';
+		});
+	assert.deepEqual(notExecutable, [], 'bin entries git records without the executable bit');
+});
