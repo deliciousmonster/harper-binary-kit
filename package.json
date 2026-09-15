@@ -1,6 +1,6 @@
 {
 	"name": "@deliciousmonster/harper-binary-kit",
-	"version": "0.1.0-next.1",
+	"version": "0.1.0-next.2",
 	"description": "Ship a native binary from a Harper component: one platform package per host, staged, verified, published, and resolved back at runtime",
 	"keywords": [
 		"harper",
