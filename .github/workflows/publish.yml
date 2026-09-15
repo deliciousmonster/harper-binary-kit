@@ -107,6 +107,10 @@ jobs:
       # Whether OIDC covers `dist-tag add` as it covers `publish` is not something this file can assert, so
       # the step fails loudly with the command to run by hand rather than leaving `latest` quietly wrong.
       - name: Point latest at this release
+        env:
+          # OIDC covers `npm publish` and not `dist-tag add`: trusted-publisher runs on 2026-09-15 published
+          # with provenance and were then answered E401 on every tag write. A token is what moves the tag.
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -o pipefail
           name="$(node -p 'require("./package.json").name')"
