@@ -136,15 +136,44 @@ test('a plain string extra directory is carried on every target the variant publ
 
 // An org can refuse a workflow naming an action by tag, and for the reusable workflow here that refusal
 // lands on the CALLER's run: theirs fails at job setup with nothing this repository's own CI would catch.
+// `uses:` as a YAML key, not the word anywhere in a line: a comment explaining the rule mentions `uses: x@vY`
+// in prose, and matching that would fail the gate on its own documentation.
+const USES = /^[ \t]*(?:-[ \t]*)?uses:[ \t]*(\S+)/gm;
+
+/**
+ * Whether a `uses:` ref is pinned. `./path` names a workflow in this same commit, so it is already as pinned
+ * as the file quoting it; the exemption is a leading `./` and nothing else, since `.github/...` without it is
+ * a repository slug. The scan and the cases below share this one function, or a case proves only its own copy.
+ *
+ * @param {string} ref
+ */
+const isPinned = (ref) => ref.startsWith('./') || /@[0-9a-f]{40}$|@sha256:[0-9a-f]{64}$/.test(ref);
+
 test('every action in the workflows is pinned to a commit SHA', () => {
 	const dir = new URL('../../.github/workflows/', import.meta.url);
 	const unpinned = [];
 	for (const file of readdirSync(dir)) {
-		for (const [, ref = ''] of readFileSync(new URL(file, dir), 'utf-8').matchAll(/uses:\s*(\S+)/g)) {
-			if (!/@[0-9a-f]{40}$|@sha256:[0-9a-f]{64}$/.test(ref)) unpinned.push(`${file}: ${ref}`);
+		for (const [, ref = ''] of readFileSync(new URL(file, dir), 'utf-8').matchAll(USES)) {
+			if (!isPinned(ref)) unpinned.push(`${file}: ${ref}`);
 		}
 	}
 	assert.deepEqual(unpinned, []);
+});
+
+// The exemption above is the kind that quietly widens. A slug that merely starts with a dot is a third-party
+// action, and `.github/workflows/x.yml@main` would be the org's own shared workflow at a moving ref.
+test('NEGATIVE: the local-workflow exemption does not cover a repository slug', () => {
+	assert.equal(isPinned('./.github/workflows/test.yml'), true);
+	assert.equal(isPinned('.github/workflows/test.yml@main'), false);
+	assert.equal(isPinned('dotorg/.github/workflows/shared.yml@main'), false);
+	assert.equal(isPinned('actions/checkout@v4'), false);
+});
+
+test('NEGATIVE: the scan reads uses: as a key, not the word in a sentence', () => {
+	const refs = (/** @type {string} */ text) => [...text.matchAll(USES)].map(([, ref]) => ref);
+	assert.deepEqual(refs('      - uses: actions/checkout@abc\n'), ['actions/checkout@abc']);
+	assert.deepEqual(refs('    uses: ./.github/workflows/test.yml\n'), ['./.github/workflows/test.yml']);
+	assert.deepEqual(refs('      # consumers name it in `uses: owner/repo/.github/workflows/x.yml@v1`\n'), []);
 });
 
 // Git for Windows checks out CRLF, prettier.config.mjs sets no endOfLine, and its default `lf` then rejects

@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -68,3 +68,12 @@ test('NEGATIVE: deps without --write prints and changes nothing', () =>
 		assert.match(printed, /2\.0\.0-next\.3/, 'it should still print the block');
 		assert.equal(readFileSync(join(dir, 'package.json'), 'utf-8'), before);
 	}));
+
+// `files` listed `workflows/`, which has never existed: the reusable workflow is consumed by git ref
+// (`uses: .../.github/workflows/release.yml@vX`), not out of the tarball, so the entry shipped nothing.
+test('every path the manifest promises to ship exists', () => {
+	const root = new URL('../../', import.meta.url);
+	const manifest = JSON.parse(readFileSync(new URL('package.json', root), 'utf-8'));
+	const missing = manifest.files.filter((/** @type {string} */ entry) => !existsSync(new URL(entry, root)));
+	assert.deepEqual(missing, [], 'files[] names paths that are not in the repository');
+});

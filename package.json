@@ -29,7 +29,6 @@
 	},
 	"files": [
 		"src/",
-		"workflows/",
 		"README.md"
 	],
 	"repository": {
