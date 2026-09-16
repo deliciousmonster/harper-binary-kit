@@ -51,6 +51,11 @@ export async function isPublished(name, version, { fetch: get = globalThis.fetch
  * missing; all 8 were there, and the last took 13 minutes to serve. Without the wait the step fails a release
  * that worked, and a retry cannot mask a real failure because a package that never publishes never appears.
  *
+ * The ceiling is 30 minutes because 7.82.1-next.15 exceeded a 20-minute one: eight packages served inside a
+ * second and the ninth took longer than the whole budget. Waiting is the only thing that separates a slow
+ * read from an absent package, so the ceiling buys a margin and `readBackVerdict` decides what running out
+ * of it means.
+ *
  * @param {object} options
  * @param {readonly string[]} options.names @param {string} options.version
  * @param {typeof globalThis.fetch} [options.fetch] @param {string} [options.registry]
@@ -63,7 +68,7 @@ export async function confirmPublished({
 	version,
 	fetch: get,
 	registry,
-	timeoutMs = 20 * 60_000,
+	timeoutMs = 30 * 60_000,
 	intervalMs = 15_000,
 	wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 	now = Date.now,
@@ -89,4 +94,27 @@ export async function confirmPublished({
 
 	for (const name of names) lines.push(String(last.get(name)));
 	return { ok: pending.length === 0, missing: pending, lines };
+}
+
+/**
+ * What a read-back says, confirmed or not. An unconfirmed one is deliberately not a failure: every
+ * `npm publish` succeeded before this point or the caller stopped there, so a package still absent at the
+ * deadline is the registry not serving a write it accepted. Stopping here skips the tag write, and `latest`
+ * then stays on the previous release while every package of the new one sits on the registry. That is what
+ * happened to 7.82.1-next.15, and it cost a hand-run `dist-tag add` across nine packages.
+ *
+ * The tag write is the better gate. A GET is answered by a CDN edge that can lag its own origin; `npm
+ * dist-tag add` reads the authoritative store and errors on a version that is genuinely not there. So the
+ * line has to leave an operator able to act on it, which is what the test holds it to.
+ *
+ * @param {readonly string[]} missing @param {string} version
+ * @returns {string}
+ */
+export function readBackLine(missing, version) {
+	if (missing.length === 0) return `every package of ${version} is on the registry`;
+	return (
+		`the registry has not served ${missing.join(', ')} at ${version} yet, though npm accepted every ` +
+		`publish. Moving latest is the next step and it reads the authoritative store, so it fails if any of ` +
+		`these is truly absent.`
+	);
 }

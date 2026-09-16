@@ -11,7 +11,7 @@ import { checkFloors } from './floor.js';
 import { buildTree } from './layout.js';
 import { allPackages, optionalDependencies } from './packages.js';
 import { advanceLatest, distTag, publishAll } from './publish.js';
-import { confirmPublished } from './published.js';
+import { confirmPublished, readBackLine } from './published.js';
 import { stageAll } from './stage.js';
 import { binaryFilename, targets } from './targets.js';
 import { verifyAll } from './verify.js';
@@ -119,12 +119,13 @@ const COMMANDS = {
 		// and waiting out the propagation budget to rediscover that delays the report by twenty minutes.
 		if (failed.length > 0) fail(`${failed.length} package(s) did not publish: ${failed.map((f) => f.name).join(', ')}`);
 
-		// Read back rather than trust the exit code: npm has reported a publish it did not make.
+		// Read back to report, not to gate. npm has reported a publish it did not make, so the check earns its
+		// place, but a package the registry has not served yet is indistinguishable from one it never took and
+		// the next step can tell them apart where this cannot.
 		const names = [config.scope, ...packages.map((pkg) => pkg.name)];
-		const { ok, missing, lines: readBack } = await confirmPublished({ names, version });
+		const { missing, lines: readBack } = await confirmPublished({ names, version });
 		for (const line of readBack) say(line);
-		if (!ok) fail(`the registry does not serve ${missing.join(', ')} at ${version}, whatever the publish reported`);
-		say(`every package of ${version} is on the registry under ${distTag(version)}`);
+		say(`${readBackLine(missing, version)} Published under ${distTag(version)}.`);
 	},
 
 	/** Point `latest` at this release, forward only. Fails loudly with the commands if it cannot. */

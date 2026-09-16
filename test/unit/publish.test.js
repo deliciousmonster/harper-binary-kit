@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { advanceLatest, distTag, isNewer, publishAll } from '../../src/publish.js';
-import { confirmPublished, isPublished, versionUrl } from '../../src/published.js';
+import { confirmPublished, isPublished, readBackLine, versionUrl } from '../../src/published.js';
 
 /**
  * Only the two fields the publish path reads. Cast because a full PlatformPackage carries a target, a variant
@@ -289,4 +289,31 @@ test('NEGATIVE: a package that never appears still fails, and the wait is bounde
 	assert.deepEqual(missing, ['@x/a-probe-linux-x86_64']);
 	assert.equal(clock.now(), 60_000, 'it waited past its own deadline');
 	assert.equal(asked.get('@x/a-probe-linux-x86_64'), 5, 'four waits of 15s, and a read before each');
+});
+
+// 7.82.1-next.15 published all nine packages and then failed its own release, because the read-back gave up on
+// one of them at twenty minutes and a failed step skips the one that moves `latest`. The tag sat on next.14
+// until it was moved by hand. An unconfirmed read-back has to leave the job green and the operator informed.
+test('an unconfirmed read-back reads as a wait, not a failed release', () => {
+	const line = readBackLine(['@x/a-probe-macos-arm64'], '7.82.1-next.15');
+	assert.match(line, /@x\/a-probe-macos-arm64/, 'the operator cannot act on a warning that names nothing');
+	assert.match(line, /7\.82\.1-next\.15/);
+	assert.match(line, /npm accepted every publish/, 'it must say the release itself is not in doubt');
+	assert.match(line, /latest/, 'and point at the step that decides');
+	assert.doesNotMatch(line, /fail(ed|ure)\b(?!s if)/i, 'nothing here is a failure yet');
+});
+
+test('a confirmed read-back claims nothing is missing', () => {
+	const line = readBackLine([], '7.82.1-next.15');
+	assert.equal(line, 'every package of 7.82.1-next.15 is on the registry');
+	assert.doesNotMatch(line, /not served|absent|yet/);
+});
+
+// The ceiling is the only thing separating a slow read from an absent package, and next.15 walked past a
+// twenty-minute one. A default that drifts back down re-opens exactly that failure.
+test('the read-back waits half an hour before it gives up', async () => {
+	const clock = fakeClock();
+	const { fetch } = registry(['@x/a']);
+	await confirmPublished({ names: ['@x/a'], version: '1.0.0', fetch, ...clock });
+	assert.equal(clock.now(), 30 * 60_000, 'the default ceiling moved');
 });
