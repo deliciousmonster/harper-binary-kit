@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { buildTree, packageDir } from '../../src/layout.js';
 import { packagesFor } from '../../src/packages.js';
 import { accessorName, indexModule, stageAll, stagePackage } from '../../src/stage.js';
-import { currentTargetName, target, targets } from '../../src/targets.js';
+import { currentTargetName, target } from '../../src/targets.js';
 import { carriesExecutableBit, one, withTempDir } from '../support/sandbox.js';
 
 const CONFIG = {
